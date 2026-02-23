@@ -9,5 +9,8 @@ packages/contracts/out/
 packages/contracts/cache/
 broadcast/
 
+# Ephemeral market data
+packages/agent/data/
+
 # OS
 .DS_Store

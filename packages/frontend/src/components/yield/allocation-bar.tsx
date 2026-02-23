@@ -1,26 +1,24 @@
 'use client'
 
+import { formatNumber } from '@/lib/format'
+
 interface AllocationSegment {
   protocol: string
   amount: number
   color: string
 }
 
-const PROTOCOL_COLORS: Record<string, string> = {
-  default: 'bg-gray-600',
-}
-
 const PROTOCOL_COLOR_LIST = [
-  'bg-emerald-500',
-  'bg-blue-500',
-  'bg-amber-500',
-  'bg-purple-500',
-  'bg-rose-500',
-  'bg-cyan-500',
+  { bg: 'bg-emerald-500', dot: 'bg-emerald-500' },
+  { bg: 'bg-blue-500', dot: 'bg-blue-500' },
+  { bg: 'bg-amber-500', dot: 'bg-amber-500' },
+  { bg: 'bg-purple-500', dot: 'bg-purple-500' },
+  { bg: 'bg-rose-500', dot: 'bg-rose-500' },
+  { bg: 'bg-cyan-500', dot: 'bg-cyan-500' },
 ]
 
-function getProtocolColor(protocol: string, index: number): string {
-  return PROTOCOL_COLORS[protocol] || PROTOCOL_COLOR_LIST[index % PROTOCOL_COLOR_LIST.length]
+function getColor(index: number) {
+  return PROTOCOL_COLOR_LIST[index % PROTOCOL_COLOR_LIST.length]
 }
 
 interface AllocationBarProps {
@@ -31,34 +29,45 @@ interface AllocationBarProps {
 export function AllocationBar({ segments, total }: AllocationBarProps) {
   if (total === 0 || segments.length === 0) {
     return (
-      <div className="w-full h-6 rounded bg-gray-800" />
+      <div className="w-full h-3 rounded-full bg-gray-800/60" />
     )
   }
 
   return (
     <div>
-      <div className="w-full h-6 rounded overflow-hidden flex">
+      {/* Bar */}
+      <div className="w-full h-3 rounded-full overflow-hidden flex bg-gray-800/40">
         {segments.map((seg, i) => {
           const pct = (seg.amount / total) * 100
           if (pct <= 0) return null
+          const color = getColor(i)
           return (
             <div
               key={seg.protocol}
-              className={`${getProtocolColor(seg.protocol, i)} h-full`}
+              className={`${color.bg} h-full transition-all duration-500 first:rounded-l-full last:rounded-r-full`}
               style={{ width: `${pct}%` }}
-              title={`${seg.protocol}: ${seg.amount.toFixed(2)} USDT (${pct.toFixed(1)}%)`}
+              title={`${seg.protocol}: ${formatNumber(seg.amount, 2)} USDT (${pct.toFixed(1)}%)`}
             />
           )
         })}
       </div>
-      <div className="flex flex-wrap gap-3 mt-3">
-        {segments.map((seg, i) => (
-          <div key={seg.protocol} className="flex items-center gap-1.5 text-xs text-gray-400">
-            <span className={`inline-block w-3 h-3 rounded ${getProtocolColor(seg.protocol, i)}`} />
-            <span>{seg.protocol}</span>
-            <span className="font-mono">{seg.amount.toFixed(2)}</span>
-          </div>
-        ))}
+
+      {/* Legend */}
+      <div className="flex flex-wrap gap-4 mt-4">
+        {segments.map((seg, i) => {
+          const pct = total > 0 ? (seg.amount / total) * 100 : 0
+          const color = getColor(i)
+          return (
+            <div key={seg.protocol} className="flex items-center gap-2 text-xs">
+              <span className={`inline-block w-2.5 h-2.5 rounded-full ${color.dot}`} />
+              <span className="text-gray-400">{seg.protocol}</span>
+              <span className="font-mono tabular-nums text-gray-500">
+                {formatNumber(seg.amount, 2)} USDT
+              </span>
+              <span className="text-gray-600">({pct.toFixed(1)}%)</span>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

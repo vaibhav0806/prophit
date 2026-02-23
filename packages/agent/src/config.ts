@@ -57,6 +57,7 @@ export const config = {
   matchingConfidenceThreshold: Number(process.env.MATCHING_CONFIDENCE_THRESHOLD || "0.90"),
   yieldRotationEnabled: process.env.YIELD_ROTATION_ENABLED === "true",
   minYieldImprovementBps: Number(process.env.MIN_YIELD_IMPROVEMENT_BPS ?? "200"),
+  dailyLossLimit: BigInt(process.env.DAILY_LOSS_LIMIT || "50000000"), // 50 USDT in 6-dec
   probableAdapterAddress: (process.env.PROBABLE_ADAPTER_ADDRESS || undefined) as `0x${string}` | undefined,
   probableApiBase: process.env.PROBABLE_API_BASE || "https://api.probable.markets",
   probableEventsApiBase: process.env.PROBABLE_EVENTS_API_BASE || "https://market-api.probable.markets",

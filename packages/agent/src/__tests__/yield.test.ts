@@ -41,7 +41,11 @@ function makeOpportunity(overrides: Partial<ArbitOpportunity> = {}): ArbitOpport
     totalCost: (ONE * 70n) / 100n, // 0.70 => 30% spread
     guaranteedPayout: ONE,
     spreadBps: 3000,
+    grossSpreadBps: 3000,
+    feesDeducted: 0n,
     estProfit: 30n * USDT,
+    liquidityA: ONE,
+    liquidityB: ONE,
     ...overrides,
   };
 }

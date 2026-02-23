@@ -28,7 +28,39 @@ export class Executor {
 
   async executeBest(opportunity: ArbitOpportunity, maxPositionSize: bigint): Promise<void> {
     // Split maxPositionSize evenly between A and B sides
-    const amountPerSide = maxPositionSize / 2n;
+    let amountPerSide = maxPositionSize / 2n;
+
+    // Cap position size to available liquidity (use 90% to leave room for slippage)
+    if (opportunity.liquidityA > 0n && opportunity.liquidityA < amountPerSide) {
+      const capped = opportunity.liquidityA * 90n / 100n;
+      if (capped === 0n) {
+        log.info("Insufficient liquidity on protocol A", {
+          available: opportunity.liquidityA.toString(),
+          needed: amountPerSide.toString(),
+        });
+        return;
+      }
+      log.info("Capping position size to liquidity on A", {
+        original: amountPerSide.toString(),
+        capped: capped.toString(),
+      });
+      amountPerSide = capped;
+    }
+    if (opportunity.liquidityB > 0n && opportunity.liquidityB < amountPerSide) {
+      const capped = opportunity.liquidityB * 90n / 100n;
+      if (capped === 0n) {
+        log.info("Insufficient liquidity on protocol B", {
+          available: opportunity.liquidityB.toString(),
+          needed: amountPerSide.toString(),
+        });
+        return;
+      }
+      log.info("Capping position size to liquidity on B", {
+        original: amountPerSide.toString(),
+        capped: capped.toString(),
+      });
+      amountPerSide = capped;
+    }
 
     // Check vault balance before trading
     const vaultBalance = await this.vaultClient.getVaultBalance();

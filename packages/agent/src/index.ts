@@ -20,6 +20,47 @@ import { allocateCapital } from "./yield/allocator.js";
 import { checkRotations } from "./yield/rotator.js";
 import type { YieldStatus } from "./yield/types.js";
 
+// --- Dedup prevention ---
+const DEDUP_WINDOW_MS = 5 * 60 * 1000;
+const recentTrades = new Map<string, number>();
+
+function opportunityHash(opp: ArbitOpportunity): string {
+  return `${opp.marketId}-${opp.protocolA}-${opp.protocolB}-${opp.buyYesOnA}`;
+}
+
+function isRecentlyTraded(opp: ArbitOpportunity): boolean {
+  const hash = opportunityHash(opp);
+  const lastTrade = recentTrades.get(hash);
+  return !!(lastTrade && Date.now() - lastTrade < DEDUP_WINDOW_MS);
+}
+
+function recordTrade(opp: ArbitOpportunity): void {
+  recentTrades.set(opportunityHash(opp), Date.now());
+  for (const [key, ts] of recentTrades) {
+    if (Date.now() - ts > DEDUP_WINDOW_MS) recentTrades.delete(key);
+  }
+}
+
+// --- Daily loss limit ---
+let dailyStartBalance: bigint | null = null;
+let dailyLossResetAt = Date.now() + 24 * 60 * 60 * 1000;
+
+function checkDailyLoss(currentBalance: bigint): boolean {
+  if (Date.now() > dailyLossResetAt) {
+    dailyStartBalance = currentBalance;
+    dailyLossResetAt = Date.now() + 24 * 60 * 60 * 1000;
+    log.info("Daily loss counter reset", { balance: currentBalance.toString() });
+  }
+  if (dailyStartBalance === null) {
+    dailyStartBalance = currentBalance;
+  }
+  if (dailyStartBalance > currentBalance) {
+    const loss = dailyStartBalance - currentBalance;
+    if (loss >= config.dailyLossLimit) return false;
+  }
+  return true;
+}
+
 // --- Viem clients ---
 const account = privateKeyToAccount(config.privateKey);
 
@@ -42,21 +83,14 @@ const walletClient = createWalletClient({
 });
 
 // --- Providers ---
-const providerA = new MockProvider(
-  publicClient,
-  config.adapterAAddress,
-  "MockA",
-  [config.marketId],
-);
+const providers: MarketProvider[] = [];
 
-const providerB = new MockProvider(
-  publicClient,
-  config.adapterBAddress,
-  "MockB",
-  [config.marketId],
-);
-
-const providers: MarketProvider[] = [providerA, providerB];
+if (process.env.USE_MOCK_PROVIDERS === "true" || config.chainId === 31337) {
+  const providerA = new MockProvider(publicClient, config.adapterAAddress, "MockA", [config.marketId]);
+  const providerB = new MockProvider(publicClient, config.adapterBAddress, "MockB", [config.marketId]);
+  providers.push(providerA, providerB);
+  log.info("Mock providers enabled", { chainId: config.chainId });
+}
 
 if (config.opinionAdapterAddress && config.opinionApiKey && config.opinionTokenMap) {
   const tokenMap = new Map(Object.entries(config.opinionTokenMap));
@@ -158,7 +192,16 @@ async function scan(): Promise<void> {
       log.info("Scanning for opportunities");
 
       // Fetch quotes from all providers
-      const allQuotes = (await Promise.all(providers.map((p) => p.fetchQuotes()))).flat();
+      const results = await Promise.allSettled(providers.map((p) => p.fetchQuotes()));
+      const allQuotes = results
+        .filter((r): r is PromiseFulfilledResult<MarketQuote[]> => r.status === "fulfilled")
+        .flatMap((r) => r.value);
+      const failedProviders = results
+        .map((r, i) => r.status === "rejected" ? providers[i].name : null)
+        .filter(Boolean);
+      if (failedProviders.length > 0) {
+        log.warn("Some providers failed", { failed: failedProviders });
+      }
       log.info("Fetched quotes", { count: allQuotes.length });
 
       // AI semantic matching: discover equivalent events across protocols
@@ -194,21 +237,34 @@ async function scan(): Promise<void> {
 
       // Filter by minSpreadBps
       const actionable = detected.filter((o) => o.spreadBps >= minSpreadBps);
+      const fresh = actionable.filter((o) => !isRecentlyTraded(o));
 
-      if (actionable.length > 0) {
+      // Daily loss limit check
+      let vaultBalance = 0n;
+      try { vaultBalance = await vaultClient.getVaultBalance(); } catch { /* vault may not be available */ }
+      const withinLossLimit = checkDailyLoss(vaultBalance);
+      if (!withinLossLimit) {
+        log.warn("Daily loss limit reached, skipping execution", {
+          startBalance: dailyStartBalance?.toString(),
+          currentBalance: vaultBalance.toString(),
+          limit: config.dailyLossLimit.toString(),
+        });
+      }
+
+      if (fresh.length > 0 && withinLossLimit) {
         log.info("Found opportunities above threshold", {
-          count: actionable.length,
+          count: fresh.length,
           minSpreadBps,
-          bestSpreadBps: actionable[0].spreadBps,
-          bestProtocolA: actionable[0].protocolA,
-          bestProtocolB: actionable[0].protocolB,
+          bestSpreadBps: fresh[0].spreadBps,
+          bestProtocolA: fresh[0].protocolA,
+          bestProtocolB: fresh[0].protocolB,
         });
 
         // LLM risk assessment (if AI matching is enabled)
         let effectiveMaxSize = maxPositionSize;
         if (matchingPipeline) {
           try {
-            const risk = await matchingPipeline.assessRisk(actionable[0], allQuotes);
+            const risk = await matchingPipeline.assessRisk(fresh[0], allQuotes);
             const sizeMultiplier = BigInt(Math.floor(risk.recommendedSizeMultiplier * 100));
             effectiveMaxSize = (maxPositionSize * sizeMultiplier) / 100n;
             log.info("Risk-adjusted position size", {
@@ -224,12 +280,13 @@ async function scan(): Promise<void> {
         }
 
         try {
-          await executor.executeBest(actionable[0], effectiveMaxSize);
+          await executor.executeBest(fresh[0], effectiveMaxSize);
           tradesExecuted++;
+          recordTrade(fresh[0]);
         } catch {
           // Already logged in executor
         }
-      } else {
+      } else if (fresh.length === 0) {
         log.info("No opportunities above threshold", { minSpreadBps });
       }
 

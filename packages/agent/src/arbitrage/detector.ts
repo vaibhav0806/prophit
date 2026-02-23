@@ -4,6 +4,10 @@ const ONE = 10n ** 18n;
 const USDT_DECIMALS = 6n;
 const REF_AMOUNT = 100n * 10n ** USDT_DECIMALS; // 100 USDT reference (6 decimals)
 
+function bigMax(a: bigint, b: bigint): bigint {
+  return a > b ? a : b;
+}
+
 export function detectArbitrage(quotes: MarketQuote[]): ArbitOpportunity[] {
   // Group quotes by marketId
   const byMarket = new Map<string, MarketQuote[]>();
@@ -28,13 +32,19 @@ export function detectArbitrage(quotes: MarketQuote[]): ArbitOpportunity[] {
         // Strategy 1: buy YES on A + buy NO on B
         const costYesANoB = a.yesPrice + b.noPrice;
         if (costYesANoB < ONE) {
-          const spreadBps = Number(((ONE - costYesANoB) * 10000n) / ONE);
-          // estProfit: for REF_AMOUNT per side, shares = amount * 1e18 / price
-          // total cost = REF_AMOUNT on each side = 2 * REF_AMOUNT
-          // guaranteed payout per share = 1e18
-          // profit = payout - totalCost per pair of shares
-          const estProfit =
-            (REF_AMOUNT * (ONE - costYesANoB)) / ONE;
+          const grossSpreadBps = Number(((ONE - costYesANoB) * 10000n) / ONE);
+
+          // Worst-case fee: protocol charges feeBps on profit of the winning leg
+          const feeIfYesWins = (ONE - a.yesPrice) * BigInt(a.feeBps) / 10000n;
+          const feeIfNoWins = (ONE - b.noPrice) * BigInt(b.feeBps) / 10000n;
+          const worstCaseFee = bigMax(feeIfYesWins, feeIfNoWins);
+
+          const effectivePayout = ONE - worstCaseFee;
+          const netSpread = effectivePayout - costYesANoB;
+          if (netSpread <= 0n) continue;
+
+          const spreadBps = Number((netSpread * 10000n) / ONE);
+          const estProfit = (REF_AMOUNT * netSpread) / ONE;
 
           opportunities.push({
             marketId: a.marketId,
@@ -46,16 +56,30 @@ export function detectArbitrage(quotes: MarketQuote[]): ArbitOpportunity[] {
             totalCost: costYesANoB,
             guaranteedPayout: ONE,
             spreadBps,
+            grossSpreadBps,
+            feesDeducted: worstCaseFee,
             estProfit,
+            liquidityA: a.yesLiquidity,
+            liquidityB: b.noLiquidity,
           });
         }
 
         // Strategy 2: buy NO on A + buy YES on B
         const costNoAYesB = a.noPrice + b.yesPrice;
         if (costNoAYesB < ONE) {
-          const spreadBps = Number(((ONE - costNoAYesB) * 10000n) / ONE);
-          const estProfit =
-            (REF_AMOUNT * (ONE - costNoAYesB)) / ONE;
+          const grossSpreadBps = Number(((ONE - costNoAYesB) * 10000n) / ONE);
+
+          // Worst-case fee: protocol charges feeBps on profit of the winning leg
+          const feeIfYesWins = (ONE - b.yesPrice) * BigInt(b.feeBps) / 10000n;
+          const feeIfNoWins = (ONE - a.noPrice) * BigInt(a.feeBps) / 10000n;
+          const worstCaseFee = bigMax(feeIfYesWins, feeIfNoWins);
+
+          const effectivePayout = ONE - worstCaseFee;
+          const netSpread = effectivePayout - costNoAYesB;
+          if (netSpread <= 0n) continue;
+
+          const spreadBps = Number((netSpread * 10000n) / ONE);
+          const estProfit = (REF_AMOUNT * netSpread) / ONE;
 
           opportunities.push({
             marketId: a.marketId,
@@ -67,7 +91,11 @@ export function detectArbitrage(quotes: MarketQuote[]): ArbitOpportunity[] {
             totalCost: costNoAYesB,
             guaranteedPayout: ONE,
             spreadBps,
+            grossSpreadBps,
+            feesDeducted: worstCaseFee,
             estProfit,
+            liquidityA: b.yesLiquidity,
+            liquidityB: a.noLiquidity,
           });
         }
       }

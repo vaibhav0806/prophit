@@ -4,6 +4,9 @@ import { log } from "../logger.js";
 import { withRetry } from "../retry.js";
 import { decimalToBigInt } from "../utils.js";
 
+const ONE = 10n ** 18n;
+const MIN_LIQUIDITY = 1_000_000n; // 1 USDT minimum liquidity (6 decimals)
+
 // Predict.fun API: https://api.predict.fun
 // Auth: x-api-key header
 // Endpoints:
@@ -87,6 +90,20 @@ export class PredictProvider extends MarketProvider {
           0n,
         );
 
+        // Skip quotes with invalid prices or insufficient liquidity
+        if (yesPrice <= 0n || noPrice <= 0n) {
+          log.warn("Skipping zero-price quote", { marketId, protocol: this.name });
+          continue;
+        }
+        if (yesPrice >= ONE || noPrice >= ONE) {
+          log.warn("Skipping out-of-range price", { marketId, protocol: this.name, yesPrice: yesPrice.toString(), noPrice: noPrice.toString() });
+          continue;
+        }
+        if (yesLiq < MIN_LIQUIDITY || noLiq < MIN_LIQUIDITY) {
+          log.warn("Skipping low-liquidity quote", { marketId, protocol: this.name, yesLiq: yesLiq.toString(), noLiq: noLiq.toString() });
+          continue;
+        }
+
         quotes.push({
           marketId,
           protocol: this.name,
@@ -94,6 +111,7 @@ export class PredictProvider extends MarketProvider {
           noPrice,
           yesLiquidity: yesLiq,
           noLiquidity: noLiq,
+          feeBps: 200,
         });
       } catch (err) {
         log.warn("Failed to fetch Predict quote", {

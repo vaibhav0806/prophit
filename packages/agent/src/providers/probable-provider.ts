@@ -4,6 +4,9 @@ import { log } from "../logger.js";
 import { withRetry } from "../retry.js";
 import { decimalToBigInt } from "../utils.js";
 
+const ONE = 10n ** 18n;
+const MIN_LIQUIDITY = 1_000_000n; // 1 USDT minimum liquidity (6 decimals)
+
 // Probable Markets API (no auth required for reading):
 //   Events: https://market-api.probable.markets/public/api/v1/events?active=true
 //   Orderbook: https://api.probable.markets/public/api/v1/book?token_id=X
@@ -91,6 +94,20 @@ export class ProbableProvider extends MarketProvider {
           (sum, o) => sum + decimalToBigInt(o.size, 6), 0n,
         );
 
+        // Skip quotes with invalid prices or insufficient liquidity
+        if (yesPrice <= 0n || noPrice <= 0n) {
+          log.warn("Skipping zero-price quote", { marketId, protocol: this.name });
+          continue;
+        }
+        if (yesPrice >= ONE || noPrice >= ONE) {
+          log.warn("Skipping out-of-range price", { marketId, protocol: this.name, yesPrice: yesPrice.toString(), noPrice: noPrice.toString() });
+          continue;
+        }
+        if (yesLiq < MIN_LIQUIDITY || noLiq < MIN_LIQUIDITY) {
+          log.warn("Skipping low-liquidity quote", { marketId, protocol: this.name, yesLiq: yesLiq.toString(), noLiq: noLiq.toString() });
+          continue;
+        }
+
         quotes.push({
           marketId,
           protocol: this.name,
@@ -98,6 +115,7 @@ export class ProbableProvider extends MarketProvider {
           noPrice,
           yesLiquidity: yesLiq,
           noLiquidity: noLiq,
+          feeBps: 0,
         });
       } catch (err) {
         log.warn("Failed to fetch Probable quote", { marketId, error: String(err) });

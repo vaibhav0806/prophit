@@ -51,6 +51,7 @@ function makeQuote(overrides: Partial<MarketQuote> & { protocol: string }): Mark
     noPrice: ONE / 2n,
     yesLiquidity: ONE,
     noLiquidity: ONE,
+    feeBps: 0,
     ...overrides,
   };
 }
@@ -215,7 +216,11 @@ describe("RiskAssessor", () => {
       totalCost: ONE * 70n / 100n,
       guaranteedPayout: ONE,
       spreadBps: 3000,
+      grossSpreadBps: 3000,
+      feesDeducted: 0n,
       estProfit: 30_000_000n,
+      liquidityA: ONE,
+      liquidityB: ONE,
     };
     const quotes = [
       makeQuote({ protocol: "A", eventDescription: "BTC > 100k" }),
@@ -251,7 +256,11 @@ describe("RiskAssessor", () => {
       totalCost: ONE,
       guaranteedPayout: ONE,
       spreadBps: 0,
+      grossSpreadBps: 0,
+      feesDeducted: 0n,
       estProfit: 0n,
+      liquidityA: ONE,
+      liquidityB: ONE,
     };
     const result = await assessor.assess(opportunity, []);
     expect(result.riskScore).toBe(1);

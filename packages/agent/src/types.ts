@@ -5,6 +5,7 @@ export interface MarketQuote {
   noPrice: bigint;
   yesLiquidity: bigint;
   noLiquidity: bigint;
+  feeBps: number; // protocol fee in basis points (e.g. 200 for Predict.fun)
   eventDescription?: string;
   expiresAt?: number;
   category?: string;
@@ -32,7 +33,11 @@ export interface ArbitOpportunity {
   totalCost: bigint;
   guaranteedPayout: bigint; // 1e18 per share
   spreadBps: number;
+  grossSpreadBps: number; // spread before fee deduction
+  feesDeducted: bigint; // total fees deducted (18 decimals)
   estProfit: bigint;
+  liquidityA: bigint; // available liquidity for leg A (6 decimals USDT)
+  liquidityB: bigint; // available liquidity for leg B (6 decimals USDT)
 }
 
 export interface Position {

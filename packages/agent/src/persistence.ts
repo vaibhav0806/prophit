@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync } from "node:fs";
 import path from "node:path";
 import { log } from "./logger.js";
 import type { Position } from "./types.js";
@@ -39,7 +39,9 @@ function revivePosition(raw: Record<string, unknown>): Position {
 
 export function saveState(state: PersistedState): void {
   try {
-    writeFileSync(STATE_FILE, serialize(state), "utf-8");
+    const tmpFile = STATE_FILE + ".tmp";
+    writeFileSync(tmpFile, serialize(state), "utf-8");
+    renameSync(tmpFile, STATE_FILE);
   } catch (err) {
     log.error("Failed to save state", { error: String(err) });
   }

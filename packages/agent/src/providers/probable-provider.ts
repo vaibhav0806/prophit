@@ -7,14 +7,33 @@ import { decimalToBigInt } from "../utils.js";
 // Probable Markets API (no auth required for reading):
 //   Events: https://market-api.probable.markets/public/api/v1/events?active=true
 //   Orderbook: https://api.probable.markets/public/api/v1/book?token_id=X
+// Pagination: default limit=20, max per page=100, use offset for next pages
 
 interface ProbableOrderBook {
   asks: Array<{ price: string; size: string }>;
   bids: Array<{ price: string; size: string }>;
 }
 
+export interface ProbableEvent {
+  id: string;
+  title: string;
+  slug: string;
+  active: boolean;
+  tags: string[];
+  markets: ProbableMarket[];
+}
+
+export interface ProbableMarket {
+  id: string;
+  question: string;
+  clobTokenIds: string; // JSON string: '["yesTokenId","noTokenId"]'
+  outcomes: string; // JSON string: '["Yes","No"]'
+  tokens: Array<{ token_id: string; outcome: string }>;
+}
+
 export class ProbableProvider extends MarketProvider {
   private apiBase: string;
+  private eventsApiBase: string;
   private marketIds: `0x${string}`[];
   private marketMap: Map<
     string,
@@ -29,9 +48,11 @@ export class ProbableProvider extends MarketProvider {
       string,
       { probableMarketId: string; conditionId: string; yesTokenId: string; noTokenId: string }
     >,
+    eventsApiBase?: string,
   ) {
     super("Probable", adapterAddress);
     this.apiBase = apiBase;
+    this.eventsApiBase = eventsApiBase || "https://market-api.probable.markets";
     this.marketIds = marketIds;
     this.marketMap = marketMap;
   }
@@ -84,6 +105,33 @@ export class ProbableProvider extends MarketProvider {
     }
 
     return quotes;
+  }
+
+  /**
+   * Discover all active events from Probable API with proper pagination.
+   * Max 100 events per page; paginates via offset until all fetched.
+   */
+  async discoverEvents(): Promise<ProbableEvent[]> {
+    const PAGE_SIZE = 100;
+    const allEvents: ProbableEvent[] = [];
+    let offset = 0;
+
+    while (true) {
+      const url = `${this.eventsApiBase}/public/api/v1/events?active=true&limit=${PAGE_SIZE}&offset=${offset}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+      if (!res.ok) throw new Error(`Probable events API error: ${res.status}`);
+
+      const events = (await res.json()) as ProbableEvent[];
+      if (!Array.isArray(events) || events.length === 0) break;
+
+      allEvents.push(...events);
+      log.info("Probable: fetched events page", { offset, count: events.length, total: allEvents.length });
+
+      if (events.length < PAGE_SIZE) break; // last page
+      offset += PAGE_SIZE;
+    }
+
+    return allEvents;
   }
 
   private async fetchOrderBook(tokenId: string): Promise<ProbableOrderBook> {

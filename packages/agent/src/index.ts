@@ -89,6 +89,7 @@ if (config.probableAdapterAddress && config.probableMarketMap) {
     config.probableApiBase,
     Object.keys(config.probableMarketMap).map((k) => k as `0x${string}`),
     marketMap,
+    config.probableEventsApiBase,
   );
   providers.push(probableProvider);
 }

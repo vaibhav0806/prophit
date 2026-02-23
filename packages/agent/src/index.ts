@@ -5,6 +5,7 @@ import { config } from "./config.js";
 import { MockProvider } from "./providers/mock-provider.js";
 import { OpinionProvider } from "./providers/opinion-provider.js";
 import { PredictProvider } from "./providers/predict-provider.js";
+import { ProbableProvider } from "./providers/probable-provider.js";
 import type { MarketProvider } from "./providers/base.js";
 import { detectArbitrage } from "./arbitrage/detector.js";
 import { MatchingPipeline } from "./matching/index.js";
@@ -79,6 +80,17 @@ if (config.predictAdapterAddress && config.predictApiKey && config.predictMarket
     marketMap,
   );
   providers.push(predictProvider);
+}
+
+if (config.probableAdapterAddress && config.probableMarketMap) {
+  const marketMap = new Map(Object.entries(config.probableMarketMap));
+  const probableProvider = new ProbableProvider(
+    config.probableAdapterAddress,
+    config.probableApiBase,
+    Object.keys(config.probableMarketMap).map((k) => k as `0x${string}`),
+    marketMap,
+  );
+  providers.push(probableProvider);
 }
 
 if (config.chainId === 31337) {

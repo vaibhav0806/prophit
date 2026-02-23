@@ -1,0 +1,26 @@
+**/node_modules
+**/.next
+.git/
+.gitignore
+.DS_Store
+
+# Foundry artifacts
+packages/contracts/out/
+packages/contracts/cache/
+broadcast/
+
+# Logs
+*.log
+
+# Environment (secrets passed via env_file)
+.env
+.env.local
+.env.*.local
+
+# Ephemeral data
+packages/agent/data/
+
+# Docker
+docker-compose*.yml
+.dockerignore
+**/Dockerfile

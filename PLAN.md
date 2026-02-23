@@ -52,8 +52,8 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Opi
 | OpinionAdapter.t.sol | 30 | All passing |
 | PredictAdapter.t.sol | 30 | All passing |
 | ProbableAdapter.t.sol | 35 | All passing |
-| Agent unit tests | 82 | All passing |
-| **Total** | **196** | **All passing** |
+| Agent unit tests | 84 | All passing |
+| **Total** | **198** | **All passing** |
 
 ### Live API Validation
 
@@ -165,14 +165,14 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Opi
 ## Pre-Launch Checklist
 
 ### Phase 1: P0 Fixes (~1-2 days)
-- [ ] Agent: duplicate trade prevention (dedup window)
-- [ ] Agent: `Promise.allSettled` for providers
-- [ ] Agent: fee accounting in detector (200bps Predict.fun fee must be subtracted from spread)
-- [ ] Agent: orderbook validation (price bounds, staleness, min liquidity)
-- [ ] Agent: conditional MockProvider instantiation (gate behind `USE_MOCK_PROVIDERS=true`)
-- [ ] Agent: atomic state persistence (write to `.tmp` then `rename()`)
-- [ ] Agent: agent-side daily loss limit
-- [ ] Agent: position size vs liquidity check (compare order size against orderbook depth)
+- [x] Agent: duplicate trade prevention (dedup window) — `6bfeba7`
+- [x] Agent: `Promise.allSettled` for providers — `6bfeba7`
+- [x] Agent: fee accounting in detector (200bps Predict.fun fee subtracted from spread) — `6bfeba7`
+- [x] Agent: orderbook validation (price bounds, min liquidity) — `6bfeba7`
+- [x] Agent: conditional MockProvider instantiation (gated behind `USE_MOCK_PROVIDERS=true` / chainId 31337) — `6bfeba7`
+- [x] Agent: atomic state persistence (write to `.tmp` then `renameSync()`) — `6bfeba7`
+- [x] Agent: agent-side daily loss limit — `6bfeba7`
+- [x] Agent: position size vs liquidity check (90% cap per leg) — `6bfeba7`
 - [ ] Contracts: timelock on `resetDailyLoss()`
 - [ ] Contracts: 2-step `setAgent()` with delay
 - [ ] Frontend: require env vars in production mode
@@ -328,15 +328,19 @@ If spread_bps > min_threshold:
   If net_profit > 0: EXECUTE
 ```
 
-### Fee Accounting (TODO — P0 fix needed)
+### Fee Accounting
 
 ```
-Predict.fun: 200 bps on each leg
+Predict.fun: 200 bps on profit of winning leg (worst-case deducted in detector)
 Probable:    0 bps
-Opinion:     ~100-300 bps dynamic
+Opinion:     200 bps (estimated, pending API key confirmation)
 
-Effective min spread = sum_of_fees + (2 * gas_cost) + margin
-Example: Predict + Probable = 200 + 0 + ~1 + 50 margin ≈ 251 bps minimum
+Detector computes worst-case fee per strategy:
+  worstCaseFee = max(feeIfYesWins, feeIfNoWins)
+  where feeIfYesWins = (1.0 - yesPrice) * feeBps / 10000
+
+spreadBps is NET (after fees); grossSpreadBps stores pre-fee value.
+Opportunities where fees >= gross spread are skipped.
 ```
 
 ---

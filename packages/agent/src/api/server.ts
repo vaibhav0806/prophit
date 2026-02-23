@@ -36,9 +36,9 @@ export function createServer(
   // CORS for dev
   app.use("*", cors());
 
-  // Auth middleware for POST routes
+  // Auth middleware for all routes
   app.use("*", async (c, next) => {
-    if (c.req.method === "POST" && config.apiKey) {
+    if (config.apiKey) {
       const auth = c.req.header("Authorization");
       if (auth !== `Bearer ${config.apiKey}`) {
         return c.json({ error: "unauthorized" }, 401);

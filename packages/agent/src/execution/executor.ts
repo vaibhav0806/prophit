@@ -1,14 +1,28 @@
-import type { ArbitOpportunity } from "../types.js";
+import type { PublicClient } from "viem";
+import type { ArbitOpportunity, Position } from "../types.js";
 import type { VaultClient } from "./vault-client.js";
 import type { Config } from "../config.js";
+import { log } from "../logger.js";
+
+const isResolvedAbi = [
+  {
+    type: "function",
+    name: "isResolved",
+    inputs: [{ name: "marketId", type: "bytes32" }],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "view",
+  },
+] as const;
 
 export class Executor {
   private vaultClient: VaultClient;
   private config: Config;
+  private publicClient: PublicClient;
 
-  constructor(vaultClient: VaultClient, config: Config) {
+  constructor(vaultClient: VaultClient, config: Config, publicClient: PublicClient) {
     this.vaultClient = vaultClient;
     this.config = config;
+    this.publicClient = publicClient;
   }
 
   async executeBest(opportunity: ArbitOpportunity, maxPositionSize: bigint): Promise<void> {
@@ -19,7 +33,7 @@ export class Executor {
     const vaultBalance = await this.vaultClient.getVaultBalance();
     const totalNeeded = amountPerSide * 2n;
     if (vaultBalance < totalNeeded) {
-      console.log(`[Executor] Insufficient vault balance: ${vaultBalance} < ${totalNeeded}`);
+      log.info("Insufficient vault balance", { vaultBalance: vaultBalance.toString(), totalNeeded: totalNeeded.toString() });
       return;
     }
 
@@ -34,20 +48,20 @@ export class Executor {
       const gasCostUsdt = (estimatedGasCost * this.config.gasToUsdtRate) / BigInt(1e18);
 
       if (opportunity.estProfit <= gasCostUsdt) {
-        console.log(`[Executor] Trade unprofitable after gas: profit=${opportunity.estProfit}, gasCost=${gasCostUsdt}`);
+        log.info("Trade unprofitable after gas", { profit: opportunity.estProfit.toString(), gasCost: gasCostUsdt.toString() });
         return;
       }
     } catch (e) {
-      console.warn('[Executor] Gas estimation failed, proceeding anyway:', e);
+      log.warn("Gas estimation failed, proceeding anyway", { error: String(e) });
     }
 
-    console.log(
-      `[Executor] Executing arb: ${opportunity.protocolA} vs ${opportunity.protocolB}`,
-    );
-    console.log(
-      `[Executor] Spread: ${opportunity.spreadBps} bps, buyYesOnA: ${opportunity.buyYesOnA}`,
-    );
-    console.log(`[Executor] Amount per side: ${amountPerSide}`);
+    log.info("Executing arb", {
+      protocolA: opportunity.protocolA,
+      protocolB: opportunity.protocolB,
+      spreadBps: opportunity.spreadBps,
+      buyYesOnA: opportunity.buyYesOnA,
+      amountPerSide: amountPerSide.toString(),
+    });
 
     // Slippage protection: expect at least 95% of estimated shares
     const minSharesA =
@@ -72,10 +86,53 @@ export class Executor {
         minSharesB,
       });
 
-      console.log(`[Executor] Position opened: #${positionId}`);
+      log.info("Position opened", { positionId: positionId.toString() });
     } catch (err) {
-      console.error("[Executor] Failed to execute trade:", err);
+      log.error("Failed to execute trade", { error: String(err) });
       throw err;
     }
+  }
+
+  async closeResolved(positions: Position[]): Promise<number> {
+    let closed = 0;
+
+    for (const pos of positions) {
+      if (pos.closed) continue;
+
+      try {
+        // Check if either side's market is resolved
+        const [resolvedA, resolvedB] = await Promise.all([
+          this.publicClient.readContract({
+            address: pos.adapterA,
+            abi: isResolvedAbi,
+            functionName: "isResolved",
+            args: [pos.marketIdA],
+          }),
+          this.publicClient.readContract({
+            address: pos.adapterB,
+            abi: isResolvedAbi,
+            functionName: "isResolved",
+            args: [pos.marketIdB],
+          }),
+        ]);
+
+        if (resolvedA && resolvedB) {
+          log.info("Closing resolved position", { positionId: pos.positionId });
+          const payout = await this.vaultClient.closePosition(pos.positionId, 0n);
+          log.info("Position closed", {
+            positionId: pos.positionId,
+            payout: payout.toString(),
+          });
+          closed++;
+        }
+      } catch (err) {
+        log.error("Failed to close position", {
+          positionId: pos.positionId,
+          error: String(err),
+        });
+      }
+    }
+
+    return closed;
   }
 }

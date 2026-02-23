@@ -7,6 +7,7 @@ import {
   useStopAgent,
   useUpdateConfig,
 } from '@/hooks/use-agent-api'
+import { ErrorBoundary } from '@/components/error-boundary'
 
 function formatUptime(ms: number): string {
   const seconds = Math.floor(ms / 1000)
@@ -65,6 +66,7 @@ export default function AgentPage() {
   }
 
   return (
+    <ErrorBoundary>
     <div>
       <h1 className="text-2xl font-bold mb-6">Agent Control</h1>
 
@@ -189,5 +191,6 @@ export default function AgentPage() {
         </div>
       )}
     </div>
+    </ErrorBoundary>
   )
 }

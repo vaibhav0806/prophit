@@ -1,0 +1,135 @@
+import { describe, it, expect } from "vitest";
+import { detectArbitrage } from "../arbitrage/detector.js";
+import type { MarketQuote } from "../types.js";
+
+const ONE = 10n ** 18n;
+const marketId = "0x0000000000000000000000000000000000000000000000000000000000000001" as `0x${string}`;
+
+function quote(
+  protocol: string,
+  yesPrice: bigint,
+  noPrice: bigint,
+): MarketQuote {
+  return {
+    marketId,
+    protocol,
+    yesPrice,
+    noPrice,
+    yesLiquidity: ONE,
+    noLiquidity: ONE,
+  };
+}
+
+describe("detectArbitrage", () => {
+  it("returns empty array when given no quotes", () => {
+    expect(detectArbitrage([])).toEqual([]);
+  });
+
+  it("returns empty array when only one provider exists", () => {
+    const quotes = [quote("A", ONE / 2n, ONE / 2n)];
+    expect(detectArbitrage(quotes)).toEqual([]);
+  });
+
+  it("returns empty array when prices sum to 1 (no arb)", () => {
+    const quotes = [
+      quote("A", ONE / 2n, ONE / 2n),
+      quote("B", ONE / 2n, ONE / 2n),
+    ];
+    expect(detectArbitrage(quotes)).toEqual([]);
+  });
+
+  it("detects arbitrage when yes_A + no_B < 1", () => {
+    // A: yes=0.40, no=0.60  B: yes=0.60, no=0.30
+    // yes_A + no_B = 0.40 + 0.30 = 0.70 < 1 => arb
+    const quotes = [
+      quote("A", (ONE * 40n) / 100n, (ONE * 60n) / 100n),
+      quote("B", (ONE * 60n) / 100n, (ONE * 30n) / 100n),
+    ];
+
+    const result = detectArbitrage(quotes);
+    expect(result.length).toBeGreaterThanOrEqual(1);
+
+    const arb = result.find((o) => o.buyYesOnA === true);
+    expect(arb).toBeDefined();
+    expect(arb!.protocolA).toBe("A");
+    expect(arb!.protocolB).toBe("B");
+    expect(arb!.spreadBps).toBeGreaterThan(0);
+    expect(arb!.totalCost).toBeLessThan(ONE);
+  });
+
+  it("detects arbitrage when no_A + yes_B < 1", () => {
+    // A: yes=0.70, no=0.20  B: yes=0.30, no=0.80
+    // no_A + yes_B = 0.20 + 0.30 = 0.50 < 1 => arb
+    const quotes = [
+      quote("A", (ONE * 70n) / 100n, (ONE * 20n) / 100n),
+      quote("B", (ONE * 30n) / 100n, (ONE * 80n) / 100n),
+    ];
+
+    const result = detectArbitrage(quotes);
+    expect(result.length).toBeGreaterThanOrEqual(1);
+
+    const arb = result.find((o) => o.buyYesOnA === false);
+    expect(arb).toBeDefined();
+    expect(arb!.spreadBps).toBeGreaterThan(0);
+  });
+
+  it("returns no opportunity when prices sum above 1", () => {
+    // A: yes=0.55, no=0.55  B: yes=0.55, no=0.55
+    // Both combos = 1.10 > 1
+    const quotes = [
+      quote("A", (ONE * 55n) / 100n, (ONE * 55n) / 100n),
+      quote("B", (ONE * 55n) / 100n, (ONE * 55n) / 100n),
+    ];
+
+    expect(detectArbitrage(quotes)).toEqual([]);
+  });
+
+  it("sorts opportunities by spreadBps descending", () => {
+    const marketId2 = "0x0000000000000000000000000000000000000000000000000000000000000002" as `0x${string}`;
+
+    const quotes: MarketQuote[] = [
+      // Market 1: small spread (yes_A + no_B = 0.95)
+      { marketId, protocol: "A", yesPrice: (ONE * 50n) / 100n, noPrice: (ONE * 50n) / 100n, yesLiquidity: ONE, noLiquidity: ONE },
+      { marketId, protocol: "B", yesPrice: (ONE * 60n) / 100n, noPrice: (ONE * 45n) / 100n, yesLiquidity: ONE, noLiquidity: ONE },
+      // Market 2: bigger spread (yes_A + no_B = 0.70)
+      { marketId: marketId2, protocol: "A", yesPrice: (ONE * 40n) / 100n, noPrice: (ONE * 60n) / 100n, yesLiquidity: ONE, noLiquidity: ONE },
+      { marketId: marketId2, protocol: "B", yesPrice: (ONE * 60n) / 100n, noPrice: (ONE * 30n) / 100n, yesLiquidity: ONE, noLiquidity: ONE },
+    ];
+
+    const result = detectArbitrage(quotes);
+    expect(result.length).toBeGreaterThanOrEqual(2);
+    // Should be sorted descending
+    for (let i = 1; i < result.length; i++) {
+      expect(result[i - 1].spreadBps).toBeGreaterThanOrEqual(result[i].spreadBps);
+    }
+  });
+
+  it("computes correct spreadBps", () => {
+    // yes_A + no_B = 0.40 + 0.30 = 0.70
+    // spread = (1 - 0.70) / 1 * 10000 = 3000 bps
+    const quotes = [
+      quote("A", (ONE * 40n) / 100n, (ONE * 60n) / 100n),
+      quote("B", (ONE * 60n) / 100n, (ONE * 30n) / 100n),
+    ];
+
+    const result = detectArbitrage(quotes);
+    const arb = result.find((o) => o.buyYesOnA === true);
+    expect(arb).toBeDefined();
+    expect(arb!.spreadBps).toBe(3000);
+  });
+
+  it("computes estProfit correctly", () => {
+    // 100 USDT reference, 30% spread => estProfit = 100 * 0.30 = 30 USDT (6 decimals)
+    const quotes = [
+      quote("A", (ONE * 40n) / 100n, (ONE * 60n) / 100n),
+      quote("B", (ONE * 60n) / 100n, (ONE * 30n) / 100n),
+    ];
+
+    const result = detectArbitrage(quotes);
+    const arb = result.find((o) => o.buyYesOnA === true);
+    expect(arb).toBeDefined();
+    // REF_AMOUNT = 100 * 1e6 = 100_000_000
+    // estProfit = 100_000_000 * (1e18 - 0.7e18) / 1e18 = 30_000_000
+    expect(arb!.estProfit).toBe(30_000_000n);
+  });
+});

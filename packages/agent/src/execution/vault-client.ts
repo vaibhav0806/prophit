@@ -1,6 +1,7 @@
 import { parseEventLogs } from "viem";
 import type { PublicClient, WalletClient } from "viem";
 import type { Position } from "../types.js";
+import { log } from "../logger.js";
 
 const vaultAbi = [
   {
@@ -121,7 +122,7 @@ export class VaultClient {
     if (receipt.status === "reverted") {
       throw new Error(`Transaction reverted: ${hash}`);
     }
-    console.log(`[VaultClient] openPosition tx: ${receipt.transactionHash}`);
+    log.info("openPosition tx confirmed", { hash: receipt.transactionHash });
 
     // Parse PositionOpened event from receipt logs
     const positionOpenedAbi = [{
@@ -162,7 +163,7 @@ export class VaultClient {
     if (receipt.status === "reverted") {
       throw new Error(`Transaction reverted: ${hash}`);
     }
-    console.log(`[VaultClient] closePosition tx: ${receipt.transactionHash}`);
+    log.info("closePosition tx confirmed", { hash: receipt.transactionHash });
 
     const positionClosedAbi = [{
       type: 'event' as const,

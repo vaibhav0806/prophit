@@ -255,4 +255,132 @@ contract ProphitVaultTest is Test {
         vault.acceptOwnership();
         assertEq(vault.owner(), newOwner);
     }
+
+    function test_resetDailyLoss() public {
+        // Set daily loss limit that can absorb one losing trade but not two
+        // Each position costs 200e6, payout ~181.8e6, loss ~18.2e6
+        vault.setCircuitBreakers(50, 20e6, 500e6, 0);
+
+        bytes32 marketIdB2 = keccak256("BTC-100K-2025-B");
+        adapterA.setQuote(marketIdB2, 0.55e18, 0.50e18, 10_000e6, 10_000e6);
+        adapterB.setQuote(marketIdB2, 0.60e18, 0.45e18, 10_000e6, 10_000e6);
+
+        // Open two positions
+        vm.startPrank(agent);
+        vault.openPosition(
+            address(adapterA), address(adapterB),
+            marketId, marketId, true,
+            100e6, 100e6, 0, 0
+        );
+        vault.openPosition(
+            address(adapterA), address(adapterB),
+            marketIdB2, marketIdB2, true,
+            100e6, 100e6, 0, 0
+        );
+        vm.stopPrank();
+
+        // Resolve both: YES wins — adapter B (NO side) pays 0, so there's a loss
+        adapterA.resolve(marketId, true);
+        adapterB.resolve(marketId, true);
+        adapterA.resolve(marketIdB2, true);
+        adapterB.resolve(marketIdB2, true);
+
+        // Close first position — loss ~18.2e6, fits within 20e6 limit
+        vm.prank(agent);
+        vault.closePosition(0, 0);
+
+        // Close second position — cumulative loss ~36.4e6 exceeds 20e6 limit → bricked
+        vm.prank(agent);
+        vm.expectRevert("daily loss limit");
+        vault.closePosition(1, 0);
+
+        // Owner resets daily loss as escape hatch
+        vault.resetDailyLoss();
+        assertEq(vault.lossToday(), 0);
+
+        // Now closing works
+        vm.prank(agent);
+        vault.closePosition(1, 0);
+    }
+
+    function test_resetDailyLoss_notOwner() public {
+        vm.prank(agent);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, agent));
+        vault.resetDailyLoss();
+    }
+
+    // --- Fuzz tests ---
+
+    function testFuzz_deposit(uint256 amount) public {
+        amount = bound(amount, 1, 1e12);
+
+        usdt.mint(owner, amount);
+        usdt.approve(address(vault), amount);
+
+        uint256 balBefore = vault.vaultBalance();
+        vault.deposit(amount);
+        assertEq(vault.vaultBalance(), balBefore + amount);
+    }
+
+    function testFuzz_openPosition_respectsCap(uint256 amountA, uint256 amountB) public {
+        amountA = bound(amountA, 1e6, 1000e6);
+        amountB = bound(amountB, 1e6, 1000e6);
+
+        uint256 cap = 500e6;
+        vault.setCircuitBreakers(50, 1000e6, cap, 0);
+
+        // Fund vault with enough
+        usdt.mint(owner, amountA + amountB);
+        usdt.approve(address(vault), amountA + amountB);
+        vault.deposit(amountA + amountB);
+
+        if (amountA > cap || amountB > cap) {
+            vm.prank(agent);
+            vm.expectRevert();
+            vault.openPosition(
+                address(adapterA), address(adapterB),
+                marketId, marketId, true,
+                amountA, amountB, 0, 0
+            );
+        } else {
+            vm.prank(agent);
+            vault.openPosition(
+                address(adapterA), address(adapterB),
+                marketId, marketId, true,
+                amountA, amountB, 0, 0
+            );
+        }
+    }
+
+    function testFuzz_circuitBreaker_dailyLimit(uint8 numTrades) public {
+        uint256 limit = 5;
+        vault.setCircuitBreakers(limit, 1000e6, 500e6, 0);
+
+        // Fund vault with enough for all trades
+        uint256 perTrade = 10e6;
+        uint256 totalNeeded = uint256(numTrades) * perTrade * 2;
+        usdt.mint(owner, totalNeeded);
+        usdt.approve(address(vault), totalNeeded);
+        if (totalNeeded > 0) vault.deposit(totalNeeded);
+
+        vm.startPrank(agent);
+        for (uint256 i = 0; i < numTrades; i++) {
+            if (i >= limit) {
+                vm.expectRevert("daily trade limit");
+                vault.openPosition(
+                    address(adapterA), address(adapterB),
+                    marketId, marketId, true,
+                    perTrade, perTrade, 0, 0
+                );
+                break;
+            } else {
+                vault.openPosition(
+                    address(adapterA), address(adapterB),
+                    marketId, marketId, true,
+                    perTrade, perTrade, 0, 0
+                );
+            }
+        }
+        vm.stopPrank();
+    }
 }

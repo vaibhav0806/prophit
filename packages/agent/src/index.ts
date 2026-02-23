@@ -7,6 +7,8 @@ import { detectArbitrage } from "./arbitrage/detector.js";
 import { VaultClient } from "./execution/vault-client.js";
 import { Executor } from "./execution/executor.js";
 import { createServer } from "./api/server.js";
+import { log } from "./logger.js";
+import { loadState, saveState } from "./persistence.js";
 import type { ArbitOpportunity, Position, AgentStatus } from "./types.js";
 
 // --- Viem clients ---
@@ -49,7 +51,7 @@ const providers = [providerA, providerB];
 
 // --- Execution ---
 const vaultClient = new VaultClient(walletClient, publicClient, config.vaultAddress);
-const executor = new Executor(vaultClient, config);
+const executor = new Executor(vaultClient, config, publicClient);
 
 // --- Agent state ---
 let running = false;
@@ -59,6 +61,19 @@ let opportunities: ArbitOpportunity[] = [];
 let positions: Position[] = [];
 let scanTimer: ReturnType<typeof setTimeout> | null = null;
 const startedAt = Date.now();
+
+// Load persisted state
+const persisted = loadState();
+if (persisted) {
+  tradesExecuted = persisted.tradesExecuted;
+  positions = persisted.positions;
+  lastScan = persisted.lastScan;
+  log.info("Restored persisted state", {
+    tradesExecuted,
+    positions: positions.length,
+    lastScan,
+  });
+}
 
 // Mutable config
 let minSpreadBps = config.minSpreadBps;
@@ -75,11 +90,11 @@ async function scan(): Promise<void> {
 
   try {
     try {
-      console.log(`[Agent] Scanning for opportunities...`);
+      log.info("Scanning for opportunities");
 
       // Fetch quotes from all providers
       const allQuotes = (await Promise.all(providers.map((p) => p.fetchQuotes()))).flat();
-      console.log(`[Agent] Fetched ${allQuotes.length} quotes`);
+      log.info("Fetched quotes", { count: allQuotes.length });
 
       // Detect arbitrage
       const detected = detectArbitrage(allQuotes);
@@ -89,12 +104,13 @@ async function scan(): Promise<void> {
       const actionable = detected.filter((o) => o.spreadBps >= minSpreadBps);
 
       if (actionable.length > 0) {
-        console.log(
-          `[Agent] Found ${actionable.length} opportunities above ${minSpreadBps} bps`,
-        );
-        console.log(
-          `[Agent] Best: ${actionable[0].spreadBps} bps (${actionable[0].protocolA} vs ${actionable[0].protocolB})`,
-        );
+        log.info("Found opportunities above threshold", {
+          count: actionable.length,
+          minSpreadBps,
+          bestSpreadBps: actionable[0].spreadBps,
+          bestProtocolA: actionable[0].protocolA,
+          bestProtocolB: actionable[0].protocolB,
+        });
 
         try {
           await executor.executeBest(actionable[0], maxPositionSize);
@@ -103,7 +119,7 @@ async function scan(): Promise<void> {
           // Already logged in executor
         }
       } else {
-        console.log(`[Agent] No opportunities above ${minSpreadBps} bps threshold`);
+        log.info("No opportunities above threshold", { minSpreadBps });
       }
 
       // Refresh positions
@@ -113,9 +129,24 @@ async function scan(): Promise<void> {
         // Vault may not have positions yet
       }
 
+      // Close resolved positions
+      try {
+        const closed = await executor.closeResolved(positions);
+        if (closed > 0) {
+          log.info("Closed resolved positions", { count: closed });
+          // Refresh positions after closing
+          positions = await vaultClient.getAllPositions();
+        }
+      } catch (err) {
+        log.error("Error closing resolved positions", { error: String(err) });
+      }
+
       lastScan = Date.now();
+
+      // Persist state after successful scan
+      saveState({ tradesExecuted, positions, lastScan });
     } catch (err) {
-      console.error("[Agent] Scan error:", err);
+      log.error("Scan error", { error: String(err) });
     }
 
     // Schedule next scan
@@ -130,7 +161,7 @@ async function scan(): Promise<void> {
 function startAgent(): void {
   if (running) return;
   running = true;
-  console.log("[Agent] Started");
+  log.info("Agent started");
   scan();
 }
 
@@ -140,7 +171,7 @@ function stopAgent(): void {
     clearTimeout(scanTimer);
     scanTimer = null;
   }
-  console.log("[Agent] Stopped");
+  log.info("Agent stopped");
 }
 
 function getStatus(): AgentStatus {
@@ -175,7 +206,7 @@ function updateConfig(update: {
       throw new Error('minSpreadBps must be between 1 and 10000');
     }
     minSpreadBps = update.minSpreadBps;
-    console.log(`[Agent] Updated minSpreadBps: ${minSpreadBps}`);
+    log.info("Updated minSpreadBps", { minSpreadBps });
   }
   if (update.maxPositionSize !== undefined) {
     const size = BigInt(update.maxPositionSize);
@@ -183,14 +214,14 @@ function updateConfig(update: {
       throw new Error('maxPositionSize must be positive');
     }
     maxPositionSize = size;
-    console.log(`[Agent] Updated maxPositionSize: ${maxPositionSize}`);
+    log.info("Updated maxPositionSize", { maxPositionSize: maxPositionSize.toString() });
   }
   if (update.scanIntervalMs !== undefined) {
     if (update.scanIntervalMs < 1000 || update.scanIntervalMs > 300000) {
       throw new Error('scanIntervalMs must be between 1000 and 300000');
     }
     scanIntervalMs = update.scanIntervalMs;
-    console.log(`[Agent] Updated scanIntervalMs: ${scanIntervalMs}`);
+    log.info("Updated scanIntervalMs", { scanIntervalMs });
   }
 }
 
@@ -205,14 +236,16 @@ const app = createServer(
 );
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
-  console.log(`[Prophit Agent] Server running on http://localhost:${info.port}`);
-  console.log(`[Prophit Agent] Vault: ${config.vaultAddress}`);
-  console.log(`[Prophit Agent] Adapter A: ${config.adapterAAddress}`);
-  console.log(`[Prophit Agent] Adapter B: ${config.adapterBAddress}`);
-  console.log(`[Prophit Agent] Market: ${config.marketId}`);
-  console.log(`[Prophit Agent] Min spread: ${minSpreadBps} bps`);
-  console.log(`[Prophit Agent] Max position: ${maxPositionSize}`);
-  console.log(`[Prophit Agent] Scan interval: ${scanIntervalMs}ms`);
+  log.info("Server running", {
+    url: `http://localhost:${info.port}`,
+    vault: config.vaultAddress,
+    adapterA: config.adapterAAddress,
+    adapterB: config.adapterBAddress,
+    marketId: config.marketId,
+    minSpreadBps,
+    maxPositionSize: maxPositionSize.toString(),
+    scanIntervalMs,
+  });
 
   // Auto-start the agent
   startAgent();
@@ -220,7 +253,7 @@ serve({ fetch: app.fetch, port: config.port }, (info) => {
 
 // --- Graceful shutdown ---
 function shutdown() {
-  console.log("[Agent] Shutting down...");
+  log.info("Shutting down");
   running = false;
   if (scanTimer) clearTimeout(scanTimer);
   process.exit(0);

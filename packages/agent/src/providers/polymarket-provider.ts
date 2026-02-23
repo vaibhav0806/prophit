@@ -1,5 +1,6 @@
 import { MarketProvider } from "./base.js";
 import type { MarketQuote } from "../types.js";
+import { log } from "../logger.js";
 
 interface PolymarketBook {
   market: string;
@@ -71,7 +72,7 @@ export class PolymarketProvider extends MarketProvider {
           noLiquidity,
         });
       } catch (err) {
-        console.error(`[PolymarketProvider] Error fetching ${marketId}:`, err);
+        log.error("Error fetching Polymarket quote", { marketId, error: String(err) });
       }
     }
 

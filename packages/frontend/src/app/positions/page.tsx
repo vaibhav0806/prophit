@@ -2,6 +2,7 @@
 
 import { formatUnits } from 'viem'
 import { usePositions, Position } from '@/hooks/use-agent-api'
+import { ErrorBoundary } from '@/components/error-boundary'
 import { useVaultBalance } from '@/hooks/use-vault'
 
 function formatValue(value: string, decimals: number, display = 4): string {
@@ -35,6 +36,7 @@ export default function PositionsPage() {
   const { data: vaultBalance } = useVaultBalance()
 
   return (
+    <ErrorBoundary>
     <div>
       <h1 className="text-2xl font-bold mb-6">Active Positions</h1>
 
@@ -128,5 +130,6 @@ export default function PositionsPage() {
         </div>
       )}
     </div>
+    </ErrorBoundary>
   )
 }

@@ -54,6 +54,7 @@ contract ProphitVault is Ownable2Step, Pausable, ReentrancyGuard {
     event AdapterApproved(address indexed adapter);
     event AdapterRemoved(address indexed adapter);
     event CircuitBreakersUpdated(uint256 dailyTradeLimit, uint256 dailyLossLimit, uint256 positionSizeCap, uint256 cooldownSeconds);
+    event DailyLossReset(uint256 timestamp);
 
     // --- Modifiers ---
     modifier onlyAgent() {
@@ -113,6 +114,12 @@ contract ProphitVault is Ownable2Step, Pausable, ReentrancyGuard {
         positionSizeCap = _positionSizeCap;
         cooldownSeconds = _cooldownSeconds;
         emit CircuitBreakersUpdated(_dailyTradeLimit, _dailyLossLimit, _positionSizeCap, _cooldownSeconds);
+    }
+
+    function resetDailyLoss() external onlyOwner {
+        lossToday = 0;
+        lastTradeDay = block.timestamp / 1 days;
+        emit DailyLossReset(block.timestamp);
     }
 
     function pause() external onlyOwner {

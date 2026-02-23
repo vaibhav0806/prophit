@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { log } from "./logger.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -44,7 +45,7 @@ export const config = {
 } as const;
 
 if (!config.apiKey) {
-  console.warn("[Config] WARNING: API_KEY is not set. Agent API endpoints are unauthenticated.");
+  log.warn("API_KEY is not set — agent API endpoints are unauthenticated");
 }
 
 export type Config = typeof config;

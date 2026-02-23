@@ -1,6 +1,7 @@
 import type { PublicClient } from "viem";
 import { MarketProvider } from "./base.js";
 import type { MarketQuote } from "../types.js";
+import { log } from "../logger.js";
 
 const getQuoteAbi = [
   {
@@ -67,10 +68,11 @@ export class MockProvider extends MarketProvider {
           noLiquidity: result.noLiquidity,
         });
       } catch (err) {
-        console.error(
-          `[${this.name}] Failed to fetch quote for market ${marketId}:`,
-          err,
-        );
+        log.error("Failed to fetch quote", {
+          provider: this.name,
+          marketId,
+          error: String(err),
+        });
       }
     }
 

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { config } from "../config.js";
 import type { AgentStatus, ArbitOpportunity, Position } from "../types.js";
 
 /** Converts bigints to strings for JSON serialization */
@@ -34,6 +35,17 @@ export function createServer(
 
   // CORS for dev
   app.use("*", cors());
+
+  // Auth middleware for POST routes
+  app.use("*", async (c, next) => {
+    if (c.req.method === "POST" && config.apiKey) {
+      const auth = c.req.header("Authorization");
+      if (auth !== `Bearer ${config.apiKey}`) {
+        return c.json({ error: "unauthorized" }, 401);
+      }
+    }
+    await next();
+  });
 
   app.get("/api/status", (c) => {
     return c.json(getStatus());

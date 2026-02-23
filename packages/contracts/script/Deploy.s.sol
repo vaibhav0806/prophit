@@ -28,9 +28,9 @@ contract Deploy is Script {
         bytes32 marketId = keccak256("BTC-100K-2025");
 
         // Adapter A: YES $0.55, NO $0.50 (sum $1.05 — slightly overpriced)
-        adapterA.setQuote(marketId, 0.55e18, 0.50e18, 50_000e18, 50_000e18);
+        adapterA.setQuote(marketId, 0.55e18, 0.50e18, 50_000e6, 50_000e6);
         // Adapter B: YES $0.60, NO $0.42 (sum $1.02 — slightly overpriced)
-        adapterB.setQuote(marketId, 0.60e18, 0.42e18, 50_000e18, 50_000e18);
+        adapterB.setQuote(marketId, 0.60e18, 0.42e18, 50_000e6, 50_000e6);
 
         // Arbitrage: buy YES on A @0.55 + buy NO on B @0.42 = $0.97 for guaranteed $1.00 = 3% profit
 
@@ -40,18 +40,22 @@ contract Deploy is Script {
         ProphitVault vault = new ProphitVault(address(usdt), agent);
         console2.log("ProphitVault:", address(vault));
 
+        // Approve adapters on the vault
+        vault.approveAdapter(address(adapterA));
+        vault.approveAdapter(address(adapterB));
+
         // 5. Fund everything
-        usdt.mint(deployer, 100_000e18);
-        usdt.mint(address(adapterA), 100_000e18);
-        usdt.mint(address(adapterB), 100_000e18);
+        usdt.mint(deployer, 100_000e6);
+        usdt.mint(address(adapterA), 100_000e6);
+        usdt.mint(address(adapterB), 100_000e6);
 
         // Deposit into vault
-        usdt.approve(address(vault), 50_000e18);
-        vault.deposit(50_000e18);
+        usdt.approve(address(vault), 50_000e6);
+        vault.deposit(50_000e6);
         console2.log("Vault funded with 50,000 USDT");
 
         // Set relaxed circuit breakers for demo
-        vault.setCircuitBreakers(100, 10_000e18, 5_000e18, 5);
+        vault.setCircuitBreakers(100, 10_000e6, 5_000e6, 5);
 
         vm.stopBroadcast();
 

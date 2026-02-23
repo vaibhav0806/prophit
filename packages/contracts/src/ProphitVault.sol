@@ -4,9 +4,11 @@ pragma solidity ^0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {IProtocolAdapter} from "./interfaces/IProtocolAdapter.sol";
 
-contract ProphitVault is Pausable {
+contract ProphitVault is Ownable2Step, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // --- Types ---
@@ -26,14 +28,14 @@ contract ProphitVault is Pausable {
 
     // --- State ---
     IERC20 public immutable usdt;
-    address public owner;
     address public agent;
 
     Position[] public positions;
+    mapping(address => bool) public approvedAdapters;
 
     // Circuit breakers
     uint256 public dailyTradeLimit;    // max trades per day
-    uint256 public dailyLossLimit;     // max loss per day (18 decimals)
+    uint256 public dailyLossLimit;     // max loss per day (6 decimals)
     uint256 public positionSizeCap;    // max USDT per side of a position
     uint256 public cooldownSeconds;    // min seconds between trades
 
@@ -49,27 +51,26 @@ contract ProphitVault is Pausable {
     event PositionOpened(uint256 indexed positionId, bytes32 marketIdA, bytes32 marketIdB, uint256 costA, uint256 costB);
     event PositionClosed(uint256 indexed positionId, uint256 payout);
     event AgentUpdated(address indexed newAgent);
+    event AdapterApproved(address indexed adapter);
+    event AdapterRemoved(address indexed adapter);
+    event CircuitBreakersUpdated(uint256 dailyTradeLimit, uint256 dailyLossLimit, uint256 positionSizeCap, uint256 cooldownSeconds);
 
     // --- Modifiers ---
-    modifier onlyOwner() {
-        require(msg.sender == owner, "not owner");
-        _;
-    }
-
     modifier onlyAgent() {
         require(msg.sender == agent, "not agent");
         _;
     }
 
-    constructor(address _usdt, address _agent) {
+    constructor(address _usdt, address _agent) Ownable(msg.sender) {
+        require(_usdt != address(0), "zero usdt");
+        require(_agent != address(0), "zero agent");
         usdt = IERC20(_usdt);
-        owner = msg.sender;
         agent = _agent;
 
-        // Defaults
+        // Defaults (USDT has 6 decimals)
         dailyTradeLimit = 50;
-        dailyLossLimit = 1000e18;
-        positionSizeCap = 500e18;
+        dailyLossLimit = 1000e6;
+        positionSizeCap = 500e6;
         cooldownSeconds = 10;
     }
 
@@ -80,13 +81,25 @@ contract ProphitVault is Pausable {
     }
 
     function withdraw(uint256 amount) external onlyOwner {
-        usdt.safeTransfer(msg.sender, amount);
-        emit Withdrawn(msg.sender, amount);
+        usdt.safeTransfer(owner(), amount);
+        emit Withdrawn(owner(), amount);
     }
 
     function setAgent(address _agent) external onlyOwner {
+        require(_agent != address(0), "zero agent");
         agent = _agent;
         emit AgentUpdated(_agent);
+    }
+
+    function approveAdapter(address adapter) external onlyOwner {
+        require(adapter != address(0), "zero adapter");
+        approvedAdapters[adapter] = true;
+        emit AdapterApproved(adapter);
+    }
+
+    function removeAdapter(address adapter) external onlyOwner {
+        approvedAdapters[adapter] = false;
+        emit AdapterRemoved(adapter);
     }
 
     function setCircuitBreakers(
@@ -99,6 +112,7 @@ contract ProphitVault is Pausable {
         dailyLossLimit = _dailyLossLimit;
         positionSizeCap = _positionSizeCap;
         cooldownSeconds = _cooldownSeconds;
+        emit CircuitBreakersUpdated(_dailyTradeLimit, _dailyLossLimit, _positionSizeCap, _cooldownSeconds);
     }
 
     function pause() external onlyOwner {
@@ -120,7 +134,11 @@ contract ProphitVault is Pausable {
         uint256 amountB,
         uint256 minSharesA,
         uint256 minSharesB
-    ) external onlyAgent whenNotPaused returns (uint256 positionId) {
+    ) external onlyAgent whenNotPaused nonReentrant returns (uint256 positionId) {
+        // Adapter whitelist
+        require(approvedAdapters[adapterA], "adapter A not approved");
+        require(approvedAdapters[adapterB], "adapter B not approved");
+
         // Circuit breaker checks
         _resetDayIfNeeded();
         require(tradesToday < dailyTradeLimit, "daily trade limit");
@@ -138,6 +156,10 @@ contract ProphitVault is Pausable {
         // Execute trades
         uint256 sharesA = IProtocolAdapter(adapterA).buyOutcome(marketIdA, buyYesOnA, amountA);
         uint256 sharesB = IProtocolAdapter(adapterB).buyOutcome(marketIdB, !buyYesOnA, amountB);
+
+        // Reset approvals to prevent dangling allowance
+        usdt.forceApprove(adapterA, 0);
+        usdt.forceApprove(adapterB, 0);
 
         require(sharesA >= minSharesA, "slippage A");
         require(sharesB >= minSharesB, "slippage B");
@@ -165,13 +187,20 @@ contract ProphitVault is Pausable {
         emit PositionOpened(positionId, marketIdA, marketIdB, amountA, amountB);
     }
 
-    function closePosition(uint256 positionId) external onlyAgent whenNotPaused returns (uint256 totalPayout) {
+    function closePosition(uint256 positionId, uint256 minPayout) external onlyAgent whenNotPaused nonReentrant returns (uint256 totalPayout) {
         Position storage pos = positions[positionId];
         require(!pos.closed, "already closed");
 
-        uint256 payoutA = IProtocolAdapter(pos.adapterA).redeem(pos.marketIdA);
-        uint256 payoutB = IProtocolAdapter(pos.adapterB).redeem(pos.marketIdB);
-        totalPayout = payoutA + payoutB;
+        // CEI: mark closed before external calls to prevent reentrancy
+        pos.closed = true;
+
+        uint256 balBefore = usdt.balanceOf(address(this));
+        IProtocolAdapter(pos.adapterA).redeem(pos.marketIdA);
+        IProtocolAdapter(pos.adapterB).redeem(pos.marketIdB);
+        uint256 balAfter = usdt.balanceOf(address(this));
+        totalPayout = balAfter - balBefore;
+
+        require(totalPayout >= minPayout, "payout below min");
 
         uint256 totalCost = pos.costA + pos.costB;
         if (totalPayout < totalCost) {
@@ -181,7 +210,6 @@ contract ProphitVault is Pausable {
             require(lossToday <= dailyLossLimit, "daily loss limit");
         }
 
-        pos.closed = true;
         emit PositionClosed(positionId, totalPayout);
     }
 

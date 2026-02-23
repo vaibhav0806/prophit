@@ -1,9 +1,18 @@
+const ZERO = '0x0000000000000000000000000000000000000000'
+
 export const ADDRESSES = {
-  vault: (process.env.NEXT_PUBLIC_VAULT_ADDRESS as `0x${string}`) || '0x0000000000000000000000000000000000000000',
-  adapterA: (process.env.NEXT_PUBLIC_ADAPTER_A_ADDRESS as `0x${string}`) || '0x0000000000000000000000000000000000000000',
-  adapterB: (process.env.NEXT_PUBLIC_ADAPTER_B_ADDRESS as `0x${string}`) || '0x0000000000000000000000000000000000000000',
-  usdt: (process.env.NEXT_PUBLIC_USDT_ADDRESS as `0x${string}`) || '0x0000000000000000000000000000000000000000',
+  vault: (process.env.NEXT_PUBLIC_VAULT_ADDRESS as `0x${string}`) || ZERO,
+  adapterA: (process.env.NEXT_PUBLIC_ADAPTER_A_ADDRESS as `0x${string}`) || ZERO,
+  adapterB: (process.env.NEXT_PUBLIC_ADAPTER_B_ADDRESS as `0x${string}`) || ZERO,
+  usdt: (process.env.NEXT_PUBLIC_USDT_ADDRESS as `0x${string}`) || ZERO,
 } as const
+
+const missing = Object.entries(ADDRESSES).filter(([_, v]) => v === ZERO).map(([k]) => k)
+if (missing.length > 0) {
+  console.warn(`[Prophit] Missing contract addresses: ${missing.join(', ')}. Set NEXT_PUBLIC_*_ADDRESS env vars.`)
+}
+
+export const addressesConfigured = missing.length === 0
 
 export const VAULT_ABI = [
   {

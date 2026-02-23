@@ -1,17 +1,24 @@
 'use client'
 
+import { formatUnits } from 'viem'
 import { usePositions, Position } from '@/hooks/use-agent-api'
 import { useVaultBalance } from '@/hooks/use-vault'
 
-function formatBigint(value: string, decimals = 18, display = 4): string {
-  const num = Number(value) / 10 ** decimals
-  return num.toFixed(display)
+function formatValue(value: string, decimals: number, display = 4): string {
+  try {
+    return Number(formatUnits(BigInt(value), decimals)).toFixed(display)
+  } catch {
+    return '\u2014'
+  }
 }
 
-function formatOnchain(value: bigint | undefined, decimals = 18, display = 4): string {
+function formatOnchain(value: bigint | undefined, decimals = 6, display = 4): string {
   if (value === undefined) return '...'
-  const num = Number(value) / 10 ** decimals
-  return num.toFixed(display)
+  try {
+    return Number(formatUnits(value, decimals)).toFixed(display)
+  } catch {
+    return '\u2014'
+  }
 }
 
 function truncate(hex: string, chars = 8): string {
@@ -93,23 +100,23 @@ export default function PositionsPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Shares A</span>
-                  <span className="font-mono">{formatBigint(pos.sharesA)}</span>
+                  <span className="font-mono">{formatValue(pos.sharesA, 6)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Shares B</span>
-                  <span className="font-mono">{formatBigint(pos.sharesB)}</span>
+                  <span className="font-mono">{formatValue(pos.sharesB, 6)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Cost A</span>
-                  <span className="font-mono">{formatBigint(pos.costA)}</span>
+                  <span className="font-mono">{formatValue(pos.costA, 6)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Cost B</span>
-                  <span className="font-mono">{formatBigint(pos.costB)}</span>
+                  <span className="font-mono">{formatValue(pos.costB, 6)}</span>
                 </div>
                 <div className="flex justify-between border-t border-gray-800 pt-2">
                   <span className="text-gray-400 font-medium">Total Cost</span>
-                  <span className="font-mono font-medium">{formatBigint(pos.totalCost)}</span>
+                  <span className="font-mono font-medium">{formatValue(pos.totalCost, 6)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Opened</span>

@@ -43,10 +43,24 @@ export default function AgentPage() {
   }
 
   const handleSaveConfig = () => {
+    const spread = Number(minSpreadBps)
+    const interval = Number(scanIntervalMs)
+    if (isNaN(spread) || spread < 1 || spread > 10000) {
+      alert('Min Spread must be between 1 and 10000 bps')
+      return
+    }
+    if (!maxPositionSize || isNaN(Number(maxPositionSize)) || Number(maxPositionSize) <= 0) {
+      alert('Max Position Size must be greater than 0')
+      return
+    }
+    if (isNaN(interval) || interval < 1000) {
+      alert('Scan Interval must be at least 1000ms')
+      return
+    }
     updateConfig.mutate({
-      minSpreadBps: Number(minSpreadBps),
+      minSpreadBps: spread,
       maxPositionSize,
-      scanIntervalMs: Number(scanIntervalMs),
+      scanIntervalMs: interval,
     })
   }
 
@@ -132,6 +146,8 @@ export default function AgentPage() {
                   type="number"
                   value={minSpreadBps}
                   onChange={(e) => setMinSpreadBps(e.target.value)}
+                  min={1}
+                  max={10000}
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-emerald-600"
                 />
               </div>
@@ -143,6 +159,7 @@ export default function AgentPage() {
                   type="text"
                   value={maxPositionSize}
                   onChange={(e) => setMaxPositionSize(e.target.value)}
+                  pattern="[0-9]*"
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-emerald-600"
                 />
               </div>
@@ -154,6 +171,7 @@ export default function AgentPage() {
                   type="number"
                   value={scanIntervalMs}
                   onChange={(e) => setScanIntervalMs(e.target.value)}
+                  min={1000}
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-emerald-600"
                 />
               </div>

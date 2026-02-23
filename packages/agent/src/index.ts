@@ -1,6 +1,5 @@
-import { createPublicClient, createWalletClient, http } from "viem";
+import { createPublicClient, createWalletClient, defineChain, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { foundry } from "viem/chains";
 import { serve } from "@hono/node-server";
 import { config } from "./config.js";
 import { MockProvider } from "./providers/mock-provider.js";
@@ -13,15 +12,22 @@ import type { ArbitOpportunity, Position, AgentStatus } from "./types.js";
 // --- Viem clients ---
 const account = privateKeyToAccount(config.privateKey);
 
+const chain = defineChain({
+  id: config.chainId,
+  name: "prophit-chain",
+  nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: [config.rpcUrl] } },
+});
+
 const publicClient = createPublicClient({
-  chain: foundry,
-  transport: http(config.rpcUrl),
+  chain,
+  transport: http(config.rpcUrl, { timeout: 10_000 }),
 });
 
 const walletClient = createWalletClient({
   account,
-  chain: foundry,
-  transport: http(config.rpcUrl),
+  chain,
+  transport: http(config.rpcUrl, { timeout: 10_000 }),
 });
 
 // --- Providers ---
@@ -60,56 +66,64 @@ let maxPositionSize = config.maxPositionSize;
 let scanIntervalMs = config.scanIntervalMs;
 
 // --- Scan loop ---
+let scanning = false;
+
 async function scan(): Promise<void> {
   if (!running) return;
+  if (scanning) return;
+  scanning = true;
 
   try {
-    console.log(`[Agent] Scanning for opportunities...`);
-
-    // Fetch quotes from all providers
-    const allQuotes = (await Promise.all(providers.map((p) => p.fetchQuotes()))).flat();
-    console.log(`[Agent] Fetched ${allQuotes.length} quotes`);
-
-    // Detect arbitrage
-    const detected = detectArbitrage(allQuotes);
-    opportunities = detected;
-
-    // Filter by minSpreadBps
-    const actionable = detected.filter((o) => o.spreadBps >= minSpreadBps);
-
-    if (actionable.length > 0) {
-      console.log(
-        `[Agent] Found ${actionable.length} opportunities above ${minSpreadBps} bps`,
-      );
-      console.log(
-        `[Agent] Best: ${actionable[0].spreadBps} bps (${actionable[0].protocolA} vs ${actionable[0].protocolB})`,
-      );
-
-      try {
-        await executor.executeBest(actionable[0]);
-        tradesExecuted++;
-      } catch {
-        // Already logged in executor
-      }
-    } else {
-      console.log(`[Agent] No opportunities above ${minSpreadBps} bps threshold`);
-    }
-
-    // Refresh positions
     try {
-      positions = await vaultClient.getAllPositions();
-    } catch {
-      // Vault may not have positions yet
+      console.log(`[Agent] Scanning for opportunities...`);
+
+      // Fetch quotes from all providers
+      const allQuotes = (await Promise.all(providers.map((p) => p.fetchQuotes()))).flat();
+      console.log(`[Agent] Fetched ${allQuotes.length} quotes`);
+
+      // Detect arbitrage
+      const detected = detectArbitrage(allQuotes);
+      opportunities = detected;
+
+      // Filter by minSpreadBps
+      const actionable = detected.filter((o) => o.spreadBps >= minSpreadBps);
+
+      if (actionable.length > 0) {
+        console.log(
+          `[Agent] Found ${actionable.length} opportunities above ${minSpreadBps} bps`,
+        );
+        console.log(
+          `[Agent] Best: ${actionable[0].spreadBps} bps (${actionable[0].protocolA} vs ${actionable[0].protocolB})`,
+        );
+
+        try {
+          await executor.executeBest(actionable[0], maxPositionSize);
+          tradesExecuted++;
+        } catch {
+          // Already logged in executor
+        }
+      } else {
+        console.log(`[Agent] No opportunities above ${minSpreadBps} bps threshold`);
+      }
+
+      // Refresh positions
+      try {
+        positions = await vaultClient.getAllPositions();
+      } catch {
+        // Vault may not have positions yet
+      }
+
+      lastScan = Date.now();
+    } catch (err) {
+      console.error("[Agent] Scan error:", err);
     }
 
-    lastScan = Date.now();
-  } catch (err) {
-    console.error("[Agent] Scan error:", err);
-  }
-
-  // Schedule next scan
-  if (running) {
-    scanTimer = setTimeout(scan, scanIntervalMs);
+    // Schedule next scan
+    if (running) {
+      scanTimer = setTimeout(scan, scanIntervalMs);
+    }
+  } finally {
+    scanning = false;
   }
 }
 
@@ -193,3 +207,14 @@ serve({ fetch: app.fetch, port: config.port }, (info) => {
   // Auto-start the agent
   startAgent();
 });
+
+// --- Graceful shutdown ---
+function shutdown() {
+  console.log("[Agent] Shutting down...");
+  running = false;
+  if (scanTimer) clearTimeout(scanTimer);
+  process.exit(0);
+}
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

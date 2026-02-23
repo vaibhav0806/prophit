@@ -1,3 +1,4 @@
+import { parseEventLogs } from "viem";
 import type { PublicClient, WalletClient } from "viem";
 import type { Position } from "../types.js";
 
@@ -22,7 +23,10 @@ const vaultAbi = [
   {
     type: "function",
     name: "closePosition",
-    inputs: [{ name: "positionId", type: "uint256" }],
+    inputs: [
+      { name: "positionId", type: "uint256" },
+      { name: "minPayout", type: "uint256" },
+    ],
     outputs: [{ name: "totalPayout", type: "uint256" }],
     stateMutability: "nonpayable",
   },
@@ -114,23 +118,50 @@ export class VaultClient {
     });
     const hash = await this.walletClient.writeContract(request);
     const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status === "reverted") {
+      throw new Error(`Transaction reverted: ${hash}`);
+    }
     console.log(`[VaultClient] openPosition tx: ${receipt.transactionHash}`);
 
-    // Read the positionCount to get the latest positionId (count - 1)
-    const count = await this.getPositionCount();
-    return count - 1n;
+    // Parse PositionOpened event from receipt logs
+    const positionOpenedAbi = [{
+      type: 'event' as const,
+      name: 'PositionOpened' as const,
+      inputs: [
+        { name: 'positionId' as const, type: 'uint256' as const, indexed: true as const },
+        { name: 'marketIdA' as const, type: 'bytes32' as const, indexed: false as const },
+        { name: 'marketIdB' as const, type: 'bytes32' as const, indexed: false as const },
+        { name: 'costA' as const, type: 'uint256' as const, indexed: false as const },
+        { name: 'costB' as const, type: 'uint256' as const, indexed: false as const },
+      ],
+    }] as const;
+
+    const logs = parseEventLogs({
+      abi: positionOpenedAbi,
+      logs: receipt.logs,
+      eventName: 'PositionOpened',
+    });
+
+    if (logs.length === 0) {
+      throw new Error('PositionOpened event not found in receipt');
+    }
+
+    return logs[0].args.positionId;
   }
 
-  async closePosition(positionId: number): Promise<bigint> {
+  async closePosition(positionId: number, minPayout: bigint = 0n): Promise<bigint> {
     const { request } = await this.publicClient.simulateContract({
       address: this.vaultAddress,
       abi: vaultAbi,
       functionName: "closePosition",
-      args: [BigInt(positionId)],
+      args: [BigInt(positionId), minPayout],
       account: this.walletClient.account!,
     });
     const hash = await this.walletClient.writeContract(request);
     const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status === "reverted") {
+      throw new Error(`Transaction reverted: ${hash}`);
+    }
     console.log(`[VaultClient] closePosition tx: ${receipt.transactionHash}`);
     // Return payout — we'd need to parse logs, but for now return 0
     return 0n;

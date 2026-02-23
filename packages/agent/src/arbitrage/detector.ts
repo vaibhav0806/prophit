@@ -1,7 +1,8 @@
 import type { MarketQuote, ArbitOpportunity } from "../types.js";
 
 const ONE = 10n ** 18n;
-const REF_AMOUNT = 100n * ONE; // 100 USDT reference for profit estimation
+const USDT_DECIMALS = 6n;
+const REF_AMOUNT = 100n * 10n ** USDT_DECIMALS; // 100 USDT reference (6 decimals)
 
 export function detectArbitrage(quotes: MarketQuote[]): ArbitOpportunity[] {
   // Group quotes by marketId

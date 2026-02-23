@@ -1,10 +1,14 @@
 'use client'
 
+import { formatUnits } from 'viem'
 import { useOpportunities, Opportunity } from '@/hooks/use-agent-api'
 
-function formatBigint(value: string, decimals = 18, display = 4): string {
-  const num = Number(value) / 10 ** decimals
-  return num.toFixed(display)
+function formatValue(value: string, decimals: number, display = 4): string {
+  try {
+    return Number(formatUnits(BigInt(value), decimals)).toFixed(display)
+  } catch {
+    return '\u2014'
+  }
 }
 
 function truncate(hex: string, chars = 8): string {
@@ -65,14 +69,14 @@ export default function ScannerPage() {
                   <td className="py-3 pr-4 font-mono text-xs">{truncate(opp.marketId)}</td>
                   <td className="py-3 pr-4">{opp.protocolA}</td>
                   <td className="py-3 pr-4">{opp.protocolB}</td>
-                  <td className="py-3 pr-4 text-right font-mono">{formatBigint(opp.yesPriceA)}</td>
-                  <td className="py-3 pr-4 text-right font-mono">{formatBigint(opp.noPriceB)}</td>
-                  <td className="py-3 pr-4 text-right font-mono">{formatBigint(opp.totalCost)}</td>
+                  <td className="py-3 pr-4 text-right font-mono">{formatValue(opp.yesPriceA, 18)}</td>
+                  <td className="py-3 pr-4 text-right font-mono">{formatValue(opp.noPriceB, 18)}</td>
+                  <td className="py-3 pr-4 text-right font-mono">{formatValue(opp.totalCost, 18)}</td>
                   <td className={`py-3 pr-4 text-right font-mono font-semibold ${spreadColor(opp.spreadBps)}`}>
                     {opp.spreadBps}
                   </td>
                   <td className="py-3 text-right font-mono text-emerald-400">
-                    {formatBigint(opp.estProfit)}
+                    {formatValue(opp.estProfit, 6)}
                   </td>
                 </tr>
               ))}

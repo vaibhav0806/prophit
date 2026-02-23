@@ -2,7 +2,8 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
-const AGENT_URL = 'http://localhost:3001'
+const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:3001'
+const API_KEY = process.env.NEXT_PUBLIC_AGENT_API_KEY || ''
 
 async function fetchJSON<T>(path: string): Promise<T> {
   const res = await fetch(`${AGENT_URL}${path}`)
@@ -11,9 +12,13 @@ async function fetchJSON<T>(path: string): Promise<T> {
 }
 
 async function postJSON<T>(path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (API_KEY) {
+    headers['Authorization'] = `Bearer ${API_KEY}`
+  }
   const res = await fetch(`${AGENT_URL}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)

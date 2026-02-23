@@ -33,9 +33,15 @@ export const config = {
   usdtAddress: requireAddress("USDT_ADDRESS"),
   marketId: requireHex("MARKET_ID") as `0x${string}`,
   minSpreadBps: Number(process.env.MIN_SPREAD_BPS ?? "100"),
-  maxPositionSize: BigInt(process.env.MAX_POSITION_SIZE ?? "500000000000000000000"),
+  maxPositionSize: BigInt(process.env.MAX_POSITION_SIZE ?? "500000000"),
   scanIntervalMs: Number(process.env.SCAN_INTERVAL_MS ?? "5000"),
+  chainId: Number(process.env.CHAIN_ID || "31337"),
   port: Number(process.env.PORT ?? "3001"),
+  apiKey: process.env.API_KEY ?? "",
 } as const;
+
+if (!config.apiKey) {
+  console.warn("[Config] WARNING: API_KEY is not set. Agent API endpoints are unauthenticated.");
+}
 
 export type Config = typeof config;

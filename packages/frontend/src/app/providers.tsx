@@ -2,13 +2,15 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WagmiProvider, createConfig, http } from 'wagmi'
-import { anvil } from '@/lib/chains'
+import { injected } from 'wagmi/connectors'
+import { appChain } from '@/lib/chains'
 import { useState } from 'react'
 
 const config = createConfig({
-  chains: [anvil],
+  chains: [appChain],
+  connectors: [injected()],
   transports: {
-    [anvil.id]: http(),
+    [appChain.id]: http(),
   },
   ssr: false,
 })

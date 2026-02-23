@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import Link from "next/link";
 import { Providers } from "./providers";
+import { ConnectButton } from "@/components/connect-button";
 import "./globals.css";
 
 const geistSans = localFont({
@@ -44,6 +45,9 @@ export default function RootLayout({
                   <span className="text-emerald-400">Prophit</span>
                 </h1>
                 <p className="text-xs text-gray-500 mt-1">Arbitrage Dashboard</p>
+                <div className="mt-3">
+                  <ConnectButton />
+                </div>
               </div>
               <nav className="flex-1 p-4 space-y-1">
                 {navItems.map((item) => (

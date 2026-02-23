@@ -4,113 +4,11 @@ pragma solidity ^0.8.24;
 import {Test, console2} from "forge-std/Test.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IConditionalTokens} from "../src/interfaces/IConditionalTokens.sol";
-import {IProbableRouter, IProbablePool} from "../src/interfaces/IProbableRouter.sol";
 import {ProbableAdapter} from "../src/adapters/ProbableAdapter.sol";
 import {MockUSDT} from "../src/mocks/MockUSDT.sol";
 
-// --- Mock outcome token (ERC-20 wrapper for YES/NO positions) ---
-
-contract MockOutcomeToken is ERC20 {
-    constructor(string memory name, string memory symbol) ERC20(name, symbol) {}
-
-    function mint(address to, uint256 amount) external {
-        _mint(to, amount);
-    }
-
-    function burn(address from, uint256 amount) external {
-        _burn(from, amount);
-    }
-}
-
-// --- Mock CPMM Pool ---
-
-contract MockProbablePool is IProbablePool {
-    MockOutcomeToken public _yesToken;
-    MockOutcomeToken public _noToken;
-    uint256 public _yesReserve;
-    uint256 public _noReserve;
-
-    constructor(address yes, address no) {
-        _yesToken = MockOutcomeToken(yes);
-        _noToken = MockOutcomeToken(no);
-    }
-
-    function yesReserve() external view override returns (uint256) {
-        return _yesReserve;
-    }
-
-    function noReserve() external view override returns (uint256) {
-        return _noReserve;
-    }
-
-    function yesToken() external view override returns (address) {
-        return address(_yesToken);
-    }
-
-    function noToken() external view override returns (address) {
-        return address(_noToken);
-    }
-
-    function getReserves() external view override returns (uint256 yesRes, uint256 noRes) {
-        return (_yesReserve, _noReserve);
-    }
-
-    // Test helper: set reserves
-    function setReserves(uint256 yesRes, uint256 noRes) external {
-        _yesReserve = yesRes;
-        _noReserve = noRes;
-    }
-}
-
-// --- Mock Router ---
-
-contract MockProbableRouter is IProbableRouter {
-    // Fixed output ratio for simplicity: output = input * outputRate / 10000
-    uint256 public outputRate = 9500; // 95% by default (simulates some slippage)
-
-    function setOutputRate(uint256 rate) external {
-        outputRate = rate;
-    }
-
-    function swap(
-        address pool,
-        address tokenIn,
-        uint256 amountIn,
-        uint256 amountOutMin,
-        address to,
-        uint256 /* deadline */
-    ) external override returns (uint256 amountOut) {
-        amountOut = (amountIn * outputRate) / 10000;
-        require(amountOut >= amountOutMin, "insufficient output");
-
-        // Pull input tokens from caller
-        IERC20(tokenIn).transferFrom(msg.sender, pool, amountIn);
-
-        // Determine output token
-        MockProbablePool p = MockProbablePool(pool);
-        address tokenOut;
-        if (tokenIn == p.yesToken()) {
-            tokenOut = p.noToken();
-        } else {
-            tokenOut = p.yesToken();
-        }
-
-        // Mint output tokens to recipient (mock: pool has infinite liquidity)
-        MockOutcomeToken(tokenOut).mint(to, amountOut);
-    }
-
-    function getAmountOut(
-        address, /* pool */
-        address, /* tokenIn */
-        uint256 amountIn
-    ) external view override returns (uint256 amountOut) {
-        amountOut = (amountIn * outputRate) / 10000;
-    }
-}
-
-// --- Mock Conditional Tokens (same pattern as Opinion/Predict tests) ---
+// --- Mock Conditional Tokens ---
 
 contract MockConditionalTokens is IConditionalTokens {
     IERC20 public collateral;
@@ -232,10 +130,6 @@ contract ProbableAdapterTest is Test {
     ProbableAdapter adapter;
     MockUSDT usdt;
     MockConditionalTokens ctf;
-    MockProbableRouter router;
-    MockProbablePool pool;
-    MockOutcomeToken yesToken;
-    MockOutcomeToken noToken;
 
     address owner = address(this);
     address vault = address(0xA1);
@@ -244,31 +138,17 @@ contract ProbableAdapterTest is Test {
     bytes32 marketId = keccak256("PROBABLE-MARKET-1");
     bytes32 conditionId = keccak256("CONDITION-1");
 
-    // Market without AMM pool (CTF-direct mode)
-    bytes32 directMarketId = keccak256("PROBABLE-MARKET-DIRECT");
-    bytes32 directConditionId = keccak256("CONDITION-DIRECT");
-
     function setUp() public {
         usdt = new MockUSDT();
         ctf = new MockConditionalTokens(address(usdt));
-        router = new MockProbableRouter();
-        yesToken = new MockOutcomeToken("YES", "YES");
-        noToken = new MockOutcomeToken("NO", "NO");
-        pool = new MockProbablePool(address(yesToken), address(noToken));
 
-        // Set pool reserves (50/50 = $0.50 each)
-        pool.setReserves(1_000_000e6, 1_000_000e6);
-
-        adapter = new ProbableAdapter(address(ctf), address(usdt), address(router));
+        adapter = new ProbableAdapter(address(ctf), address(usdt));
 
         // Add vault as approved caller
         adapter.addCaller(vault);
 
-        // Register market with AMM pool
-        adapter.registerMarket(marketId, conditionId, address(pool));
-
-        // Register market without AMM pool (CTF-direct fallback)
-        adapter.registerMarket(directMarketId, directConditionId, address(0));
+        // Register market
+        adapter.registerMarket(marketId, conditionId);
 
         // Fund CTF with collateral for merges/redemptions
         usdt.mint(address(ctf), 1_000_000e6);
@@ -281,17 +161,12 @@ contract ProbableAdapterTest is Test {
 
     function test_constructor_zeroCTF() public {
         vm.expectRevert("zero ctf");
-        new ProbableAdapter(address(0), address(usdt), address(router));
+        new ProbableAdapter(address(0), address(usdt));
     }
 
     function test_constructor_zeroCollateral() public {
         vm.expectRevert("zero collateral");
-        new ProbableAdapter(address(ctf), address(0), address(router));
-    }
-
-    function test_constructor_zeroRouter() public {
-        vm.expectRevert("zero router");
-        new ProbableAdapter(address(ctf), address(usdt), address(0));
+        new ProbableAdapter(address(ctf), address(0));
     }
 
     // ======== Access Control ========
@@ -342,8 +217,7 @@ contract ProbableAdapterTest is Test {
     function test_ownerCanCallWithoutBeingApproved() public {
         usdt.mint(owner, 100e6);
         usdt.approve(address(adapter), 100e6);
-        // Owner using the CTF-direct market (no AMM complexity)
-        uint256 shares = adapter.buyOutcome(directMarketId, true, 100e6);
+        uint256 shares = adapter.buyOutcome(marketId, true, 100e6);
         assertEq(shares, 100e6);
     }
 
@@ -352,9 +226,9 @@ contract ProbableAdapterTest is Test {
     function test_registerMarket() public {
         bytes32 mId = keccak256("NEW-MARKET");
         bytes32 cId = keccak256("NEW-CONDITION");
-        adapter.registerMarket(mId, cId, address(pool));
+        adapter.registerMarket(mId, cId);
 
-        (bytes32 storedConditionId, uint256 yesPositionId, uint256 noPositionId, address storedPool, bool registered, bool redeemed) =
+        (bytes32 storedConditionId, uint256 yesPositionId, uint256 noPositionId, bool registered, bool redeemed) =
             adapter.markets(mId);
 
         assertTrue(registered);
@@ -363,82 +237,39 @@ contract ProbableAdapterTest is Test {
         assertTrue(yesPositionId != 0);
         assertTrue(noPositionId != 0);
         assertTrue(yesPositionId != noPositionId);
-        assertEq(storedPool, address(pool));
-    }
-
-    function test_registerMarket_noPool() public {
-        bytes32 mId = keccak256("NO-POOL-MARKET");
-        bytes32 cId = keccak256("NO-POOL-CONDITION");
-        adapter.registerMarket(mId, cId, address(0));
-
-        (, , , address storedPool, bool registered, ) = adapter.markets(mId);
-        assertTrue(registered);
-        assertEq(storedPool, address(0));
     }
 
     function test_registerMarket_onlyOwner() public {
         vm.prank(vault);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, vault));
-        adapter.registerMarket(keccak256("x"), keccak256("y"), address(0));
+        adapter.registerMarket(keccak256("x"), keccak256("y"));
     }
 
-    function test_setPool() public {
-        address newPool = address(0xDEAD);
-        adapter.setPool(marketId, newPool);
+    // ======== Quotes (stored, set by owner/keeper) ========
 
-        (, , , address storedPool, , ) = adapter.markets(marketId);
-        assertEq(storedPool, newPool);
-    }
+    function test_setQuote() public {
+        adapter.setQuote(marketId, 0.55e18, 0.45e18, 10_000e6, 8_000e6);
 
-    function test_setPool_notRegistered() public {
-        vm.expectRevert("market not registered");
-        adapter.setPool(keccak256("nonexistent"), address(0xDEAD));
-    }
-
-    // ======== Slippage ========
-
-    function test_setSlippage() public {
-        adapter.setSlippage(200);
-        assertEq(adapter.slippageBps(), 200);
-    }
-
-    function test_setSlippage_tooHigh() public {
-        vm.expectRevert("slippage too high");
-        adapter.setSlippage(1001);
-    }
-
-    function test_setSlippage_onlyOwner() public {
-        vm.prank(rando);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, rando));
-        adapter.setSlippage(200);
-    }
-
-    // ======== Quotes (AMM-based) ========
-
-    function test_getQuote_withPool() public {
         ProbableAdapterQuoteHelper.MarketQuote memory q = ProbableAdapterQuoteHelper.getQuote(adapter, marketId);
-
-        // 50/50 reserves => 0.5e18 each
-        assertEq(q.yesPrice, 0.5e18);
-        assertEq(q.noPrice, 0.5e18);
-        assertEq(q.yesLiquidity, 1_000_000e6);
-        assertEq(q.noLiquidity, 1_000_000e6);
+        assertEq(q.yesPrice, 0.55e18);
+        assertEq(q.noPrice, 0.45e18);
+        assertEq(q.yesLiquidity, 10_000e6);
+        assertEq(q.noLiquidity, 8_000e6);
         assertFalse(q.resolved);
     }
 
-    function test_getQuote_skewedReserves() public {
-        // 30% YES / 70% NO => yesPrice = 0.7e18, noPrice = 0.3e18
-        pool.setReserves(300_000e6, 700_000e6);
-
-        ProbableAdapterQuoteHelper.MarketQuote memory q = ProbableAdapterQuoteHelper.getQuote(adapter, marketId);
-        assertEq(q.yesPrice, 0.7e18);
-        assertEq(q.noPrice, 0.3e18);
+    function test_setQuote_onlyOwner() public {
+        vm.prank(vault);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, vault));
+        adapter.setQuote(marketId, 0.55e18, 0.45e18, 10_000e6, 8_000e6);
     }
 
-    function test_getQuote_noPool() public {
-        ProbableAdapterQuoteHelper.MarketQuote memory q = ProbableAdapterQuoteHelper.getQuote(adapter, directMarketId);
+    function test_getQuote_defaultZeros() public {
+        bytes32 mId = keccak256("NO-QUOTE-MARKET");
+        bytes32 cId = keccak256("NO-QUOTE-CONDITION");
+        adapter.registerMarket(mId, cId);
 
-        // No pool => all zeros
+        ProbableAdapterQuoteHelper.MarketQuote memory q = ProbableAdapterQuoteHelper.getQuote(adapter, mId);
         assertEq(q.yesPrice, 0);
         assertEq(q.noPrice, 0);
         assertEq(q.yesLiquidity, 0);
@@ -447,6 +278,8 @@ contract ProbableAdapterTest is Test {
     }
 
     function test_getQuote_reflectsResolution() public {
+        adapter.setQuote(marketId, 0.55e18, 0.45e18, 10_000e6, 8_000e6);
+
         ProbableAdapterQuoteHelper.MarketQuote memory q1 = ProbableAdapterQuoteHelper.getQuote(adapter, marketId);
         assertFalse(q1.resolved);
 
@@ -456,50 +289,51 @@ contract ProbableAdapterTest is Test {
         assertTrue(q2.resolved);
     }
 
-    // ======== CTF-Direct Buy (no pool, same as Opinion/Predict) ========
+    // ======== Buy Outcome (CTF split) ========
 
-    function test_buyOutcome_ctfDirect_yes() public {
+    function test_buyOutcome_yes() public {
         uint256 amount = 100e6;
         vm.startPrank(vault);
         usdt.approve(address(adapter), amount);
-        uint256 shares = adapter.buyOutcome(directMarketId, true, amount);
+        uint256 shares = adapter.buyOutcome(marketId, true, amount);
         vm.stopPrank();
 
         assertEq(shares, amount);
-        assertEq(adapter.yesBalance(directMarketId), amount);
-        assertEq(adapter.noBalance(directMarketId), 0);
-        assertEq(adapter.noInventory(directMarketId), amount);
+        assertEq(adapter.yesBalance(marketId), amount);
+        assertEq(adapter.noBalance(marketId), 0);
+        assertEq(adapter.noInventory(marketId), amount);
     }
 
-    function test_buyOutcome_ctfDirect_no() public {
+    function test_buyOutcome_no() public {
         uint256 amount = 50e6;
         vm.startPrank(vault);
         usdt.approve(address(adapter), amount);
-        uint256 shares = adapter.buyOutcome(directMarketId, false, amount);
+        uint256 shares = adapter.buyOutcome(marketId, false, amount);
         vm.stopPrank();
 
         assertEq(shares, amount);
-        assertEq(adapter.noBalance(directMarketId), amount);
-        assertEq(adapter.yesInventory(directMarketId), amount);
+        assertEq(adapter.noBalance(marketId), amount);
+        assertEq(adapter.yesBalance(marketId), 0);
+        assertEq(adapter.yesInventory(marketId), amount);
     }
 
-    function test_buyOutcome_ctfDirect_usesInventory() public {
+    function test_buyOutcome_usesInventory() public {
         uint256 amount = 100e6;
         vm.startPrank(vault);
 
-        // Buy YES — creates NO inventory
+        // Buy YES -- creates NO inventory
         usdt.approve(address(adapter), amount);
-        adapter.buyOutcome(directMarketId, true, amount);
-        assertEq(adapter.noInventory(directMarketId), amount);
+        adapter.buyOutcome(marketId, true, amount);
+        assertEq(adapter.noInventory(marketId), amount);
 
-        // Buy NO — uses NO inventory
+        // Buy NO -- uses NO inventory instead of splitting
         usdt.approve(address(adapter), amount);
-        adapter.buyOutcome(directMarketId, false, amount);
+        adapter.buyOutcome(marketId, false, amount);
         vm.stopPrank();
 
-        assertEq(adapter.noInventory(directMarketId), 0);
-        assertEq(adapter.yesBalance(directMarketId), amount);
-        assertEq(adapter.noBalance(directMarketId), amount);
+        assertEq(adapter.noInventory(marketId), 0);
+        assertEq(adapter.yesBalance(marketId), amount);
+        assertEq(adapter.noBalance(marketId), amount);
     }
 
     function test_buyOutcome_marketNotRegistered() public {
@@ -509,51 +343,54 @@ contract ProbableAdapterTest is Test {
     }
 
     function test_buyOutcome_marketResolved() public {
-        ctf.resolve(directConditionId, true);
+        ctf.resolve(conditionId, true);
         vm.startPrank(vault);
         usdt.approve(address(adapter), 100e6);
         vm.expectRevert("market resolved");
-        adapter.buyOutcome(directMarketId, true, 100e6);
+        adapter.buyOutcome(marketId, true, 100e6);
         vm.stopPrank();
     }
 
-    // ======== CTF-Direct Sell ========
+    // ======== Sell Outcome (CTF merge) ========
 
-    function test_sellOutcome_ctfDirect() public {
+    function test_sellOutcome() public {
         uint256 amount = 100e6;
         vm.startPrank(vault);
         usdt.approve(address(adapter), amount);
-        adapter.buyOutcome(directMarketId, true, amount);
+        adapter.buyOutcome(marketId, true, amount);
 
         uint256 balBefore = usdt.balanceOf(vault);
-        uint256 payout = adapter.sellOutcome(directMarketId, true, amount);
+        uint256 payout = adapter.sellOutcome(marketId, true, amount);
         uint256 balAfter = usdt.balanceOf(vault);
         vm.stopPrank();
 
         assertEq(payout, amount);
         assertEq(balAfter - balBefore, amount);
-        assertEq(adapter.yesBalance(directMarketId), 0);
-        assertEq(adapter.noInventory(directMarketId), 0);
+        assertEq(adapter.yesBalance(marketId), 0);
+        assertEq(adapter.noInventory(marketId), 0);
     }
 
     function test_sellOutcome_insufficientBalance() public {
         vm.prank(vault);
         vm.expectRevert("insufficient balance");
-        adapter.sellOutcome(directMarketId, true, 100e6);
+        adapter.sellOutcome(marketId, true, 100e6);
     }
 
     function test_sellOutcome_insufficientInventory() public {
         uint256 amount = 100e6;
         vm.startPrank(vault);
 
+        // Buy YES (creates NO inventory)
         usdt.approve(address(adapter), amount);
-        adapter.buyOutcome(directMarketId, true, amount);
+        adapter.buyOutcome(marketId, true, amount);
 
+        // Buy NO using NO inventory -- inventory now 0
         usdt.approve(address(adapter), amount);
-        adapter.buyOutcome(directMarketId, false, amount);
+        adapter.buyOutcome(marketId, false, amount);
 
+        // Try selling YES -- no NO inventory left
         vm.expectRevert("insufficient inventory to merge");
-        adapter.sellOutcome(directMarketId, true, amount);
+        adapter.sellOutcome(marketId, true, amount);
         vm.stopPrank();
     }
 
@@ -563,30 +400,30 @@ contract ProbableAdapterTest is Test {
         uint256 amount = 100e6;
         vm.startPrank(vault);
         usdt.approve(address(adapter), amount);
-        adapter.buyOutcome(directMarketId, true, amount);
+        adapter.buyOutcome(marketId, true, amount);
         vm.stopPrank();
 
-        ctf.resolve(directConditionId, true);
+        ctf.resolve(conditionId, true);
 
         vm.prank(vault);
-        uint256 payout = adapter.redeem(directMarketId);
+        uint256 payout = adapter.redeem(marketId);
 
         assertEq(payout, amount);
-        assertEq(adapter.yesBalance(directMarketId), 0);
-        assertEq(adapter.noBalance(directMarketId), 0);
+        assertEq(adapter.yesBalance(marketId), 0);
+        assertEq(adapter.noBalance(marketId), 0);
     }
 
     function test_redeem_noWins() public {
         uint256 amount = 100e6;
         vm.startPrank(vault);
         usdt.approve(address(adapter), amount);
-        adapter.buyOutcome(directMarketId, false, amount);
+        adapter.buyOutcome(marketId, false, amount);
         vm.stopPrank();
 
-        ctf.resolve(directConditionId, false);
+        ctf.resolve(conditionId, false);
 
         vm.prank(vault);
-        uint256 payout = adapter.redeem(directMarketId);
+        uint256 payout = adapter.redeem(marketId);
 
         assertEq(payout, amount);
     }
@@ -595,24 +432,30 @@ contract ProbableAdapterTest is Test {
         uint256 amount = 100e6;
         vm.startPrank(vault);
         usdt.approve(address(adapter), amount);
-        adapter.buyOutcome(directMarketId, true, amount);
+        adapter.buyOutcome(marketId, true, amount);
         vm.stopPrank();
 
-        ctf.resolve(directConditionId, true);
+        ctf.resolve(conditionId, true);
 
         vm.prank(vault);
-        uint256 payout1 = adapter.redeem(directMarketId);
+        uint256 payout1 = adapter.redeem(marketId);
         assertEq(payout1, amount);
 
         vm.prank(vault);
-        uint256 payout2 = adapter.redeem(directMarketId);
+        uint256 payout2 = adapter.redeem(marketId);
         assertEq(payout2, 0);
     }
 
     function test_redeem_notResolved() public {
         vm.prank(vault);
         vm.expectRevert("not resolved");
-        adapter.redeem(directMarketId);
+        adapter.redeem(marketId);
+    }
+
+    function test_redeem_notRegistered() public {
+        vm.prank(vault);
+        vm.expectRevert("market not registered");
+        adapter.redeem(keccak256("NONEXISTENT"));
     }
 
     // ======== isResolved ========

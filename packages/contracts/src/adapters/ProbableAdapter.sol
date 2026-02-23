@@ -3,7 +3,6 @@ pragma solidity ^0.8.24;
 
 import {IProtocolAdapter, MarketQuote} from "../interfaces/IProtocolAdapter.sol";
 import {IConditionalTokens} from "../interfaces/IConditionalTokens.sol";
-import {IProbableRouter, IProbablePool} from "../interfaces/IProbableRouter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
@@ -12,26 +11,19 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
 /// @title ProbableAdapter
-/// @notice Adapter for Probable — an AMM-based zero-fee prediction market on BNB Chain,
-/// incubated by PancakeSwap, using UMA Optimistic Oracle for resolution.
+/// @notice Adapter for Probable — a CLOB-based prediction market on BNB Chain using
+/// Gnosis CTF (Conditional Tokens Framework) for outcome token minting/merging/redemption.
 ///
-/// Architecture assumptions (Probable is not yet fully deployed):
-/// - Uses Gnosis CTF (Conditional Tokens Framework) for outcome token minting/merging/redemption
-/// - Uses CPMM (constant product) AMM pools for YES/NO outcome token trading
+/// Architecture:
+/// - Uses Gnosis CTF for outcome token lifecycle (split, merge, redeem)
+/// - Prices are set off-chain by the owner/keeper from the CLOB API via `setQuote`
 /// - Uses USDT as collateral
 /// - Uses UMA Optimistic Oracle — resolution is detected via CTF payoutDenominator > 0
-///
-/// The adapter supports two trading modes:
-/// 1. AMM mode: swap via Probable's CPMM pools (when a pool is registered for the market)
-/// 2. CTF-direct mode: split/merge via CTF (fallback, same as Opinion/Predict adapters)
-///
-/// On-chain price discovery: reads AMM pool reserves to compute implied prices.
 contract ProbableAdapter is IProtocolAdapter, Ownable2Step, IERC1155Receiver, ERC165 {
     using SafeERC20 for IERC20;
 
     IERC20 public immutable collateral;
     IConditionalTokens public immutable ctf;
-    IProbableRouter public immutable router;
 
     // Access control: only approved callers (vault) can trade
     mapping(address => bool) public approvedCallers;
@@ -40,12 +32,14 @@ contract ProbableAdapter is IProtocolAdapter, Ownable2Step, IERC1155Receiver, ER
         bytes32 conditionId;
         uint256 yesPositionId;
         uint256 noPositionId;
-        address pool;         // AMM pool address (address(0) if no pool)
         bool registered;
         bool redeemed;
     }
 
     mapping(bytes32 => MarketConfig) public markets;
+
+    // Stored quotes (set off-chain by owner/keeper from CLOB API)
+    mapping(bytes32 => MarketQuote) internal quotes;
 
     // Adapter-level balance tracking (not per-user)
     mapping(bytes32 => uint256) public yesBalance;
@@ -55,31 +49,25 @@ contract ProbableAdapter is IProtocolAdapter, Ownable2Step, IERC1155Receiver, ER
     mapping(bytes32 => uint256) public yesInventory;
     mapping(bytes32 => uint256) public noInventory;
 
-    // Slippage tolerance in basis points (default 100 = 1%)
-    uint256 public slippageBps = 100;
-
     // Events
     event CallerAdded(address indexed caller);
     event CallerRemoved(address indexed caller);
-    event MarketRegistered(bytes32 indexed marketId, bytes32 conditionId, address pool);
-    event PoolUpdated(bytes32 indexed marketId, address pool);
+    event MarketRegistered(bytes32 indexed marketId, bytes32 conditionId);
     event OutcomeBought(bytes32 indexed marketId, address indexed buyer, bool buyYes, uint256 amount, uint256 shares);
     event OutcomeSold(bytes32 indexed marketId, address indexed seller, bool sellYes, uint256 amount, uint256 payout);
     event Redeemed(bytes32 indexed marketId, address indexed caller, uint256 payout);
-    event SlippageUpdated(uint256 newSlippageBps);
+    event QuoteUpdated(bytes32 indexed marketId);
 
     modifier onlyApproved() {
         require(approvedCallers[msg.sender] || msg.sender == owner(), "not approved");
         _;
     }
 
-    constructor(address _ctf, address _collateral, address _router) Ownable(msg.sender) {
+    constructor(address _ctf, address _collateral) Ownable(msg.sender) {
         require(_ctf != address(0), "zero ctf");
         require(_collateral != address(0), "zero collateral");
-        require(_router != address(0), "zero router");
         collateral = IERC20(_collateral);
         ctf = IConditionalTokens(_ctf);
-        router = IProbableRouter(_router);
     }
 
     // --- Access control ---
@@ -95,17 +83,9 @@ contract ProbableAdapter is IProtocolAdapter, Ownable2Step, IERC1155Receiver, ER
         emit CallerRemoved(caller);
     }
 
-    // --- Configuration ---
-
-    function setSlippage(uint256 _slippageBps) external onlyOwner {
-        require(_slippageBps <= 1000, "slippage too high"); // max 10%
-        slippageBps = _slippageBps;
-        emit SlippageUpdated(_slippageBps);
-    }
-
     // --- Market registration ---
 
-    function registerMarket(bytes32 marketId, bytes32 conditionId, address pool) external onlyOwner {
+    function registerMarket(bytes32 marketId, bytes32 conditionId) external onlyOwner {
         bytes32 yesCollectionId = ctf.getCollectionId(bytes32(0), conditionId, 1);
         bytes32 noCollectionId = ctf.getCollectionId(bytes32(0), conditionId, 2);
         uint256 yesPositionId = ctf.getPositionId(collateral, yesCollectionId);
@@ -115,55 +95,37 @@ contract ProbableAdapter is IProtocolAdapter, Ownable2Step, IERC1155Receiver, ER
             conditionId: conditionId,
             yesPositionId: yesPositionId,
             noPositionId: noPositionId,
-            pool: pool,
             registered: true,
             redeemed: false
         });
 
-        emit MarketRegistered(marketId, conditionId, pool);
+        emit MarketRegistered(marketId, conditionId);
     }
 
-    function setPool(bytes32 marketId, address pool) external onlyOwner {
-        require(markets[marketId].registered, "market not registered");
-        markets[marketId].pool = pool;
-        emit PoolUpdated(marketId, pool);
-    }
+    // --- Quotes ---
 
-    // --- Quotes (on-chain from AMM reserves) ---
-
-    function getQuote(bytes32 marketId) external view override returns (MarketQuote memory) {
-        MarketConfig storage config = markets[marketId];
-
-        if (config.pool != address(0)) {
-            // Read AMM pool reserves and compute implied prices
-            IProbablePool pool = IProbablePool(config.pool);
-            (uint256 yesRes, uint256 noRes) = pool.getReserves();
-            uint256 total = yesRes + noRes;
-
-            // Implied price from CPMM: price_yes = noReserve / (yesReserve + noReserve)
-            // (More YES in pool = YES is cheaper; price is the share of the opposite side)
-            uint256 yesPrice = total > 0 ? (noRes * 1e18) / total : 0;
-            uint256 noPrice = total > 0 ? (yesRes * 1e18) / total : 0;
-
-            return MarketQuote({
-                marketId: marketId,
-                yesPrice: yesPrice,
-                noPrice: noPrice,
-                yesLiquidity: yesRes,
-                noLiquidity: noRes,
-                resolved: isResolved(marketId)
-            });
-        }
-
-        // No pool — return empty quote
-        return MarketQuote({
+    function setQuote(
+        bytes32 marketId,
+        uint256 yesPrice,
+        uint256 noPrice,
+        uint256 yesLiq,
+        uint256 noLiq
+    ) external onlyOwner {
+        quotes[marketId] = MarketQuote({
             marketId: marketId,
-            yesPrice: 0,
-            noPrice: 0,
-            yesLiquidity: 0,
-            noLiquidity: 0,
+            yesPrice: yesPrice,
+            noPrice: noPrice,
+            yesLiquidity: yesLiq,
+            noLiquidity: noLiq,
             resolved: isResolved(marketId)
         });
+        emit QuoteUpdated(marketId);
+    }
+
+    function getQuote(bytes32 marketId) external view override returns (MarketQuote memory) {
+        MarketQuote memory q = quotes[marketId];
+        q.resolved = isResolved(marketId);
+        return q;
     }
 
     // --- Trading ---
@@ -176,12 +138,30 @@ contract ProbableAdapter is IProtocolAdapter, Ownable2Step, IERC1155Receiver, ER
         // Pull collateral from caller
         collateral.safeTransferFrom(msg.sender, address(this), amount);
 
-        if (config.pool != address(0)) {
-            // AMM mode: split collateral into YES+NO via CTF, then swap unwanted side through pool
-            shares = _buyViaAmm(marketId, config, buyYes, amount);
+        // Check if we have inventory of the requested side
+        if (buyYes && yesInventory[marketId] >= amount) {
+            yesInventory[marketId] -= amount;
+            shares = amount;
+        } else if (!buyYes && noInventory[marketId] >= amount) {
+            noInventory[marketId] -= amount;
+            shares = amount;
         } else {
-            // CTF-direct mode: same as Opinion/Predict adapters
-            shares = _buyViaCTF(marketId, config, buyYes, amount);
+            // Split collateral into both YES and NO via CTF
+            collateral.forceApprove(address(ctf), amount);
+            uint256[] memory partition = new uint256[](2);
+            partition[0] = 1; // YES
+            partition[1] = 2; // NO
+
+            ctf.splitPosition(collateral, bytes32(0), config.conditionId, partition, amount);
+
+            shares = amount; // 1:1 split
+
+            // Store the unwanted side as inventory
+            if (buyYes) {
+                noInventory[marketId] += amount;
+            } else {
+                yesInventory[marketId] += amount;
+            }
         }
 
         // Credit to adapter-level balance
@@ -208,14 +188,23 @@ contract ProbableAdapter is IProtocolAdapter, Ownable2Step, IERC1155Receiver, ER
             noBalance[marketId] -= shares;
         }
 
-        if (config.pool != address(0)) {
-            // AMM mode: swap held tokens to opposite side through pool, then merge
-            payout = _sellViaAmm(marketId, config, sellYes, shares);
+        // Require sufficient opposite inventory to merge
+        uint256 oppositeAvailable = sellYes ? noInventory[marketId] : yesInventory[marketId];
+        require(oppositeAvailable >= shares, "insufficient inventory to merge");
+
+        // Merge YES+NO back into collateral
+        uint256[] memory partition = new uint256[](2);
+        partition[0] = 1;
+        partition[1] = 2;
+        ctf.mergePositions(collateral, bytes32(0), config.conditionId, partition, shares);
+
+        if (sellYes) {
+            noInventory[marketId] -= shares;
         } else {
-            // CTF-direct mode: merge with inventory
-            payout = _sellViaCTF(marketId, config, sellYes, shares);
+            yesInventory[marketId] -= shares;
         }
 
+        payout = shares;
         collateral.safeTransfer(msg.sender, payout);
 
         emit OutcomeSold(marketId, msg.sender, sellYes, shares, payout);
@@ -270,146 +259,6 @@ contract ProbableAdapter is IProtocolAdapter, Ownable2Step, IERC1155Receiver, ER
         MarketConfig storage config = markets[marketId];
         if (!config.registered) return false;
         return ctf.payoutDenominator(config.conditionId) > 0;
-    }
-
-    // --- Internal: AMM trading ---
-
-    function _buyViaAmm(bytes32, /* marketId */ MarketConfig storage config, bool buyYes, uint256 amount) internal returns (uint256 shares) {
-        // Split collateral into YES+NO
-        collateral.forceApprove(address(ctf), amount);
-        uint256[] memory partition = new uint256[](2);
-        partition[0] = 1;
-        partition[1] = 2;
-        ctf.splitPosition(collateral, bytes32(0), config.conditionId, partition, amount);
-
-        // We now have `amount` of YES and `amount` of NO tokens.
-        // Swap the unwanted side through the AMM pool for more of the wanted side.
-        IProbablePool pool = IProbablePool(config.pool);
-        address tokenIn;
-        if (buyYes) {
-            tokenIn = pool.noToken();
-        } else {
-            tokenIn = pool.yesToken();
-        }
-
-        // Approve router to spend the unwanted tokens
-        IERC20(tokenIn).forceApprove(address(router), amount);
-
-        uint256 amountOutMin = (amount * (10000 - slippageBps)) / 10000;
-        uint256 amountOut = router.swap(
-            config.pool,
-            tokenIn,
-            amount,
-            amountOutMin,
-            address(this),
-            block.timestamp
-        );
-
-        // Total shares = original amount (kept side) + amountOut (swapped)
-        shares = amount + amountOut;
-    }
-
-    function _sellViaAmm(bytes32 marketId, MarketConfig storage config, bool sellYes, uint256 shares) internal returns (uint256 payout) {
-        // We want to sell `shares` of one side. Split into two halves:
-        // half goes through AMM swap to get the opposite side, then merge both into collateral.
-        uint256 half = shares / 2;
-        uint256 remainder = shares - half;
-
-        IProbablePool pool = IProbablePool(config.pool);
-        address tokenIn;
-        if (sellYes) {
-            tokenIn = pool.yesToken();
-        } else {
-            tokenIn = pool.noToken();
-        }
-
-        // Approve router to spend half of held tokens for swapping
-        IERC20(tokenIn).forceApprove(address(router), half);
-
-        uint256 amountOutMin = (half * (10000 - slippageBps)) / 10000;
-        uint256 amountOut = router.swap(
-            config.pool,
-            tokenIn,
-            half,
-            amountOutMin,
-            address(this),
-            block.timestamp
-        );
-
-        // Merge min(remainder, amountOut) pairs into collateral
-        uint256 mergeable = remainder < amountOut ? remainder : amountOut;
-
-        uint256[] memory partition = new uint256[](2);
-        partition[0] = 1;
-        partition[1] = 2;
-        ctf.mergePositions(collateral, bytes32(0), config.conditionId, partition, mergeable);
-
-        payout = mergeable;
-
-        // Store leftover tokens as inventory
-        if (remainder > amountOut) {
-            if (sellYes) {
-                yesInventory[marketId] += remainder - amountOut;
-            } else {
-                noInventory[marketId] += remainder - amountOut;
-            }
-        } else if (amountOut > remainder) {
-            if (sellYes) {
-                noInventory[marketId] += amountOut - remainder;
-            } else {
-                yesInventory[marketId] += amountOut - remainder;
-            }
-        }
-    }
-
-    // --- Internal: CTF-direct trading (fallback, no AMM pool) ---
-
-    function _buyViaCTF(bytes32 marketId, MarketConfig storage config, bool buyYes, uint256 amount) internal returns (uint256 shares) {
-        // Check if we have inventory of the requested side
-        if (buyYes && yesInventory[marketId] >= amount) {
-            yesInventory[marketId] -= amount;
-            shares = amount;
-        } else if (!buyYes && noInventory[marketId] >= amount) {
-            noInventory[marketId] -= amount;
-            shares = amount;
-        } else {
-            // Split collateral into both YES and NO via CTF
-            collateral.forceApprove(address(ctf), amount);
-            uint256[] memory partition = new uint256[](2);
-            partition[0] = 1; // YES
-            partition[1] = 2; // NO
-
-            ctf.splitPosition(collateral, bytes32(0), config.conditionId, partition, amount);
-
-            shares = amount; // 1:1 split
-
-            // Store the unwanted side as inventory
-            if (buyYes) {
-                noInventory[marketId] += amount;
-            } else {
-                yesInventory[marketId] += amount;
-            }
-        }
-    }
-
-    function _sellViaCTF(bytes32 marketId, MarketConfig storage config, bool sellYes, uint256 shares) internal returns (uint256 payout) {
-        // Require sufficient opposite inventory to merge
-        uint256 oppositeAvailable = sellYes ? noInventory[marketId] : yesInventory[marketId];
-        require(oppositeAvailable >= shares, "insufficient inventory to merge");
-
-        // Merge YES+NO back into collateral
-        uint256[] memory partition = new uint256[](2);
-        partition[0] = 1;
-        partition[1] = 2;
-        ctf.mergePositions(collateral, bytes32(0), config.conditionId, partition, shares);
-
-        if (sellYes) {
-            noInventory[marketId] -= shares;
-        } else {
-            yesInventory[marketId] -= shares;
-        }
-
-        payout = shares;
     }
 
     // --- ERC1155 Receiver (required for CTF token transfers) ---

@@ -1,170 +1,101 @@
-import type { PublicClient } from "viem";
 import { MarketProvider } from "./base.js";
 import type { MarketQuote } from "../types.js";
 import { log } from "../logger.js";
 import { withRetry } from "../retry.js";
+import { decimalToBigInt } from "../utils.js";
 
-// Probable: AMM-based zero-fee prediction market on BNB Chain (incubated by PancakeSwap).
-// No public REST API — prices are read on-chain from CPMM pool reserves.
-// Implied price: yesPrice = noReserve / (yesReserve + noReserve)
-//
-// To wire up in index.ts:
-//   import { ProbableProvider } from "./providers/probable-provider.js";
-//   const probableProvider = new ProbableProvider(
-//     publicClient,
-//     config.probableAdapterAddress!,
-//     config.probableMarketIds!,
-//     config.probablePoolMap!,
-//   );
-//   providers.push(probableProvider);
+// Probable Markets API (no auth required for reading):
+//   Events: https://market-api.probable.markets/public/api/v1/events?active=true
+//   Orderbook: https://api.probable.markets/public/api/v1/book?token_id=X
 
-const getReservesAbi = [
-  {
-    type: "function",
-    name: "getReserves",
-    inputs: [],
-    outputs: [
-      { name: "yesRes", type: "uint256", internalType: "uint256" },
-      { name: "noRes", type: "uint256", internalType: "uint256" },
-    ],
-    stateMutability: "view",
-  },
-] as const;
-
-const getQuoteAbi = [
-  {
-    type: "function",
-    name: "getQuote",
-    inputs: [
-      { name: "marketId", type: "bytes32", internalType: "bytes32" },
-    ],
-    outputs: [
-      {
-        name: "",
-        type: "tuple",
-        internalType: "struct MarketQuote",
-        components: [
-          { name: "marketId", type: "bytes32", internalType: "bytes32" },
-          { name: "yesPrice", type: "uint256", internalType: "uint256" },
-          { name: "noPrice", type: "uint256", internalType: "uint256" },
-          { name: "yesLiquidity", type: "uint256", internalType: "uint256" },
-          { name: "noLiquidity", type: "uint256", internalType: "uint256" },
-          { name: "resolved", type: "bool", internalType: "bool" },
-        ],
-      },
-    ],
-    stateMutability: "view",
-  },
-] as const;
+interface ProbableOrderBook {
+  asks: Array<{ price: string; size: string }>;
+  bids: Array<{ price: string; size: string }>;
+}
 
 export class ProbableProvider extends MarketProvider {
-  private client: PublicClient;
+  private apiBase: string;
   private marketIds: `0x${string}`[];
-  // Maps our internal marketId to pool address
-  private poolMap: Map<string, `0x${string}`>;
+  private marketMap: Map<
+    string,
+    { probableMarketId: string; conditionId: string; yesTokenId: string; noTokenId: string }
+  >;
 
   constructor(
-    client: PublicClient,
     adapterAddress: `0x${string}`,
+    apiBase: string,
     marketIds: `0x${string}`[],
-    poolMap: Map<string, `0x${string}`>,
+    marketMap: Map<
+      string,
+      { probableMarketId: string; conditionId: string; yesTokenId: string; noTokenId: string }
+    >,
   ) {
     super("Probable", adapterAddress);
-    this.client = client;
+    this.apiBase = apiBase;
     this.marketIds = marketIds;
-    this.poolMap = poolMap;
+    this.marketMap = marketMap;
   }
 
   async fetchQuotes(): Promise<MarketQuote[]> {
     const quotes: MarketQuote[] = [];
 
     for (const marketId of this.marketIds) {
+      const mapping = this.marketMap.get(marketId);
+      if (!mapping) continue;
+
       try {
-        const poolAddress = this.poolMap.get(marketId);
+        // Fetch orderbooks for YES and NO tokens
+        const [yesBook, noBook] = await Promise.all([
+          this.fetchOrderBook(mapping.yesTokenId),
+          this.fetchOrderBook(mapping.noTokenId),
+        ]);
 
-        if (poolAddress) {
-          // Primary: read pool reserves directly for freshest data
-          const quote = await this.fetchFromPool(marketId, poolAddress);
-          if (quote) {
-            quotes.push(quote);
-            continue;
-          }
-        }
+        // Sort asks ascending by price (API doesn't guarantee order)
+        const sortedYesAsks = [...yesBook.asks].sort((a, b) => Number(a.price) - Number(b.price));
+        const sortedNoAsks = [...noBook.asks].sort((a, b) => Number(a.price) - Number(b.price));
 
-        // Fallback: read from adapter's getQuote (which also reads pool reserves)
-        const quote = await this.fetchFromAdapter(marketId);
-        if (quote) {
-          quotes.push(quote);
-        }
-      } catch (err) {
-        log.warn("Failed to fetch Probable quote", {
+        // Best ask price = lowest ask = what you'd pay to buy that outcome
+        const yesPrice = sortedYesAsks.length > 0
+          ? decimalToBigInt(sortedYesAsks[0].price, 18)
+          : 0n;
+        const noPrice = sortedNoAsks.length > 0
+          ? decimalToBigInt(sortedNoAsks[0].price, 18)
+          : 0n;
+
+        // Liquidity from ask-side order depth (in 6-decimal USDT)
+        const yesLiq = yesBook.asks.reduce(
+          (sum, o) => sum + decimalToBigInt(o.size, 6), 0n,
+        );
+        const noLiq = noBook.asks.reduce(
+          (sum, o) => sum + decimalToBigInt(o.size, 6), 0n,
+        );
+
+        quotes.push({
           marketId,
-          error: String(err),
+          protocol: this.name,
+          yesPrice,
+          noPrice,
+          yesLiquidity: yesLiq,
+          noLiquidity: noLiq,
         });
+      } catch (err) {
+        log.warn("Failed to fetch Probable quote", { marketId, error: String(err) });
       }
     }
 
     return quotes;
   }
 
-  private async fetchFromPool(
-    marketId: `0x${string}`,
-    poolAddress: `0x${string}`,
-  ): Promise<MarketQuote | null> {
-    const [yesRes, noRes] = await withRetry(
-      () =>
-        this.client.readContract({
-          address: poolAddress,
-          abi: getReservesAbi,
-          functionName: "getReserves",
-        }),
-      { label: `Probable pool reserves ${marketId}` },
-    );
-
-    const total = yesRes + noRes;
-    if (total === 0n) return null;
-
-    // CPMM implied price: price_yes = noReserve / (yesReserve + noReserve)
-    const yesPrice = (noRes * 10n ** 18n) / total;
-    const noPrice = (yesRes * 10n ** 18n) / total;
-
-    return {
-      marketId,
-      protocol: this.name,
-      yesPrice,
-      noPrice,
-      yesLiquidity: yesRes,
-      noLiquidity: noRes,
-    };
-  }
-
-  private async fetchFromAdapter(
-    marketId: `0x${string}`,
-  ): Promise<MarketQuote | null> {
-    const result = await withRetry(
-      () =>
-        this.client.readContract({
-          address: this.adapterAddress,
-          abi: getQuoteAbi,
-          functionName: "getQuote",
-          args: [marketId],
-        }),
-      { label: `Probable adapter getQuote ${marketId}` },
-    );
-
-    // Skip resolved markets
-    if (result.resolved) return null;
-
-    // Skip markets with no price data
-    if (result.yesPrice === 0n && result.noPrice === 0n) return null;
-
-    return {
-      marketId: result.marketId,
-      protocol: this.name,
-      yesPrice: result.yesPrice,
-      noPrice: result.noPrice,
-      yesLiquidity: result.yesLiquidity,
-      noLiquidity: result.noLiquidity,
-    };
+  private async fetchOrderBook(tokenId: string): Promise<ProbableOrderBook> {
+    return withRetry(async () => {
+      const url = `${this.apiBase}/public/api/v1/book?token_id=${tokenId}`;
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) throw new Error(`Probable API error: ${res.status}`);
+      const data = await res.json();
+      if (!data.asks || !data.bids) throw new Error("Invalid orderbook response");
+      return data as ProbableOrderBook;
+    }, { label: `Probable orderbook ${tokenId}` });
   }
 }

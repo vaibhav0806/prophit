@@ -58,11 +58,12 @@ export const config = {
   yieldRotationEnabled: process.env.YIELD_ROTATION_ENABLED === "true",
   minYieldImprovementBps: Number(process.env.MIN_YIELD_IMPROVEMENT_BPS ?? "200"),
   probableAdapterAddress: (process.env.PROBABLE_ADAPTER_ADDRESS || undefined) as `0x${string}` | undefined,
+  probableApiBase: process.env.PROBABLE_API_BASE || "https://api.probable.markets",
   probableMarketIds: process.env.PROBABLE_MARKET_IDS
     ? (JSON.parse(process.env.PROBABLE_MARKET_IDS) as `0x${string}`[])
     : undefined,
-  probablePoolMap: process.env.PROBABLE_POOL_MAP
-    ? JSON.parse(process.env.PROBABLE_POOL_MAP) as Record<string, `0x${string}`>
+  probableMarketMap: process.env.PROBABLE_MARKET_MAP
+    ? JSON.parse(process.env.PROBABLE_MARKET_MAP) as Record<string, { probableMarketId: string; conditionId: string; yesTokenId: string; noTokenId: string }>
     : undefined,
 } as const;
 

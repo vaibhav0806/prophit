@@ -7,8 +7,13 @@ export const ADDRESSES = {
   usdt: (process.env.NEXT_PUBLIC_USDT_ADDRESS as `0x${string}`) || ZERO,
 } as const
 
+const isProd = process.env.NODE_ENV === 'production'
+
 const missing = Object.entries(ADDRESSES).filter(([, v]) => v === ZERO).map(([k]) => k)
 if (missing.length > 0) {
+  if (isProd) {
+    throw new Error(`[Prophit] Missing contract addresses: ${missing.join(', ')}. Set NEXT_PUBLIC_*_ADDRESS env vars.`)
+  }
   console.warn(`[Prophit] Missing contract addresses: ${missing.join(', ')}. Set NEXT_PUBLIC_*_ADDRESS env vars.`)
 }
 

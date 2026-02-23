@@ -45,6 +45,15 @@ contract ProphitVault is Ownable2Step, Pausable, ReentrancyGuard {
     uint256 public lastTradeDay;
     uint256 public lastTradeTimestamp;
 
+    // Daily loss reset timelock
+    uint256 public resetRequestedAt;
+    uint256 public constant RESET_DELAY = 24 hours;
+
+    // Agent change timelock
+    address public pendingAgent;
+    uint256 public agentProposedAt;
+    uint256 public constant AGENT_DELAY = 24 hours;
+
     // --- Events ---
     event Deposited(address indexed from, uint256 amount);
     event Withdrawn(address indexed to, uint256 amount);
@@ -55,6 +64,10 @@ contract ProphitVault is Ownable2Step, Pausable, ReentrancyGuard {
     event AdapterRemoved(address indexed adapter);
     event CircuitBreakersUpdated(uint256 dailyTradeLimit, uint256 dailyLossLimit, uint256 positionSizeCap, uint256 cooldownSeconds);
     event DailyLossReset(uint256 timestamp);
+    event DailyLossResetRequested(uint256 timestamp);
+    event DailyLossResetCancelled(uint256 timestamp);
+    event AgentProposed(address indexed newAgent, uint256 executeAfter);
+    event AgentProposalCancelled();
 
     // --- Modifiers ---
     modifier onlyAgent() {
@@ -86,10 +99,27 @@ contract ProphitVault is Ownable2Step, Pausable, ReentrancyGuard {
         emit Withdrawn(owner(), amount);
     }
 
-    function setAgent(address _agent) external onlyOwner {
-        require(_agent != address(0), "zero agent");
-        agent = _agent;
-        emit AgentUpdated(_agent);
+    function proposeAgent(address _newAgent) external onlyOwner {
+        require(_newAgent != address(0), "zero agent");
+        pendingAgent = _newAgent;
+        agentProposedAt = block.timestamp;
+        emit AgentProposed(_newAgent, block.timestamp + AGENT_DELAY);
+    }
+
+    function acceptAgent() external onlyOwner {
+        require(pendingAgent != address(0), "no pending agent");
+        require(block.timestamp >= agentProposedAt + AGENT_DELAY, "agent delay not met");
+        agent = pendingAgent;
+        emit AgentUpdated(pendingAgent);
+        pendingAgent = address(0);
+        agentProposedAt = 0;
+    }
+
+    function cancelAgentProposal() external onlyOwner {
+        require(pendingAgent != address(0), "no pending agent");
+        pendingAgent = address(0);
+        agentProposedAt = 0;
+        emit AgentProposalCancelled();
     }
 
     function approveAdapter(address adapter) external onlyOwner {
@@ -116,10 +146,24 @@ contract ProphitVault is Ownable2Step, Pausable, ReentrancyGuard {
         emit CircuitBreakersUpdated(_dailyTradeLimit, _dailyLossLimit, _positionSizeCap, _cooldownSeconds);
     }
 
-    function resetDailyLoss() external onlyOwner {
+    function requestDailyLossReset() external onlyOwner {
+        resetRequestedAt = block.timestamp;
+        emit DailyLossResetRequested(block.timestamp);
+    }
+
+    function executeDailyLossReset() external onlyOwner {
+        require(resetRequestedAt != 0, "no reset requested");
+        require(block.timestamp >= resetRequestedAt + RESET_DELAY, "reset delay not met");
         lossToday = 0;
         lastTradeDay = block.timestamp / 1 days;
+        resetRequestedAt = 0;
         emit DailyLossReset(block.timestamp);
+    }
+
+    function cancelDailyLossReset() external onlyOwner {
+        require(resetRequestedAt != 0, "no reset requested");
+        resetRequestedAt = 0;
+        emit DailyLossResetCancelled(block.timestamp);
     }
 
     function pause() external onlyOwner {

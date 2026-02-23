@@ -242,7 +242,45 @@ contract ProphitVaultTest is Test {
 
     function test_setAgent_zeroAddress() public {
         vm.expectRevert("zero agent");
-        vault.setAgent(address(0));
+        vault.proposeAgent(address(0));
+    }
+
+    function test_proposeAgent() public {
+        address newAgent = address(0xA2);
+        vault.proposeAgent(newAgent);
+        assertEq(vault.pendingAgent(), newAgent);
+        assertEq(vault.agentProposedAt(), block.timestamp);
+    }
+
+    function test_acceptAgent_tooEarly() public {
+        vault.proposeAgent(address(0xA2));
+        vm.expectRevert("agent delay not met");
+        vault.acceptAgent();
+    }
+
+    function test_acceptAgent_afterDelay() public {
+        address newAgent = address(0xA2);
+        vault.proposeAgent(newAgent);
+        vm.warp(block.timestamp + 24 hours + 1);
+        vault.acceptAgent();
+        assertEq(vault.agent(), newAgent);
+        assertEq(vault.pendingAgent(), address(0));
+        assertEq(vault.agentProposedAt(), 0);
+    }
+
+    function test_cancelAgentProposal() public {
+        vault.proposeAgent(address(0xA2));
+        vault.cancelAgentProposal();
+        assertEq(vault.pendingAgent(), address(0));
+        assertEq(vault.agentProposedAt(), 0);
+    }
+
+    function test_acceptAgent_notOwner() public {
+        vault.proposeAgent(address(0xA2));
+        vm.warp(block.timestamp + 24 hours + 1);
+        vm.prank(agent);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, agent));
+        vault.acceptAgent();
     }
 
     function test_transferOwnership() public {
@@ -294,8 +332,10 @@ contract ProphitVaultTest is Test {
         vm.expectRevert("daily loss limit");
         vault.closePosition(1, 0);
 
-        // Owner resets daily loss as escape hatch
-        vault.resetDailyLoss();
+        // Owner requests daily loss reset, then waits 24h
+        vault.requestDailyLossReset();
+        vm.warp(block.timestamp + 24 hours + 1);
+        vault.executeDailyLossReset();
         assertEq(vault.lossToday(), 0);
 
         // Now closing works
@@ -306,7 +346,20 @@ contract ProphitVaultTest is Test {
     function test_resetDailyLoss_notOwner() public {
         vm.prank(agent);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, agent));
-        vault.resetDailyLoss();
+        vault.requestDailyLossReset();
+    }
+
+    function test_executeDailyLossReset_tooEarly() public {
+        vault.requestDailyLossReset();
+        vm.expectRevert("reset delay not met");
+        vault.executeDailyLossReset();
+    }
+
+    function test_cancelDailyLossReset() public {
+        vault.requestDailyLossReset();
+        assertGt(vault.resetRequestedAt(), 0);
+        vault.cancelDailyLossReset();
+        assertEq(vault.resetRequestedAt(), 0);
     }
 
     // --- Fuzz tests ---

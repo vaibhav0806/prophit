@@ -2,6 +2,7 @@ import type { PublicClient } from "viem";
 import { MarketProvider } from "./base.js";
 import type { MarketQuote } from "../types.js";
 import { log } from "../logger.js";
+import { withRetry } from "../retry.js";
 
 const getQuoteAbi = [
   {
@@ -49,12 +50,15 @@ export class MockProvider extends MarketProvider {
 
     for (const marketId of this.marketIds) {
       try {
-        const result = await this.client.readContract({
-          address: this.adapterAddress,
-          abi: getQuoteAbi,
-          functionName: "getQuote",
-          args: [marketId],
-        });
+        const result = await withRetry(
+          () => this.client.readContract({
+            address: this.adapterAddress,
+            abi: getQuoteAbi,
+            functionName: "getQuote",
+            args: [marketId],
+          }),
+          { label: `getQuote(${this.name}, ${marketId})` },
+        );
 
         // Skip resolved markets
         if (result.resolved) continue;

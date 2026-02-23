@@ -42,6 +42,9 @@ export const config = {
   apiKey: process.env.API_KEY ?? "",
   polymarketAdapterAddress: (process.env.POLYMARKET_ADAPTER_ADDRESS || undefined) as `0x${string}` | undefined,
   polymarketClobUrl: process.env.POLYMARKET_CLOB_URL || "https://clob.polymarket.com",
+  polymarketTokenMap: process.env.POLYMARKET_TOKEN_MAP
+    ? JSON.parse(process.env.POLYMARKET_TOKEN_MAP) as Record<string, { yesTokenId: string; noTokenId: string }>
+    : undefined,
 } as const;
 
 if (!config.apiKey) {

@@ -2,23 +2,16 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
-const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:3001'
-const API_KEY = process.env.NEXT_PUBLIC_AGENT_API_KEY || ''
-
 async function fetchJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${AGENT_URL}${path}`)
+  const res = await fetch(`/api/agent/${path}`)
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   return res.json()
 }
 
 async function postJSON<T>(path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (API_KEY) {
-    headers['Authorization'] = `Bearer ${API_KEY}`
-  }
-  const res = await fetch(`${AGENT_URL}${path}`, {
+  const res = await fetch(`/api/agent/${path}`, {
     method: 'POST',
-    headers,
+    headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
@@ -27,7 +20,7 @@ async function postJSON<T>(path: string, body?: unknown): Promise<T> {
 
 export interface AgentStatus {
   running: boolean
-  lastScan: string | null
+  lastScan: number
   tradesExecuted: number
   uptime: number
   config: AgentConfig
@@ -48,10 +41,12 @@ export interface Opportunity {
   totalCost: string
   spreadBps: number
   estProfit: string
+  buyYesOnA: boolean
+  guaranteedPayout: string
 }
 
 export interface Position {
-  id: number
+  positionId: number
   marketIdA: string
   marketIdB: string
   boughtYesOnA: boolean
@@ -59,7 +54,6 @@ export interface Position {
   sharesB: string
   costA: string
   costB: string
-  totalCost: string
   openedAt: number
   closed: boolean
 }
@@ -67,7 +61,7 @@ export interface Position {
 export function useAgentStatus() {
   return useQuery<AgentStatus>({
     queryKey: ['agent-status'],
-    queryFn: () => fetchJSON('/api/status'),
+    queryFn: () => fetchJSON('status'),
     refetchInterval: 2000,
   })
 }
@@ -75,7 +69,7 @@ export function useAgentStatus() {
 export function useOpportunities() {
   return useQuery<Opportunity[]>({
     queryKey: ['opportunities'],
-    queryFn: () => fetchJSON('/api/opportunities'),
+    queryFn: () => fetchJSON('opportunities'),
     refetchInterval: 3000,
   })
 }
@@ -83,7 +77,7 @@ export function useOpportunities() {
 export function usePositions() {
   return useQuery<Position[]>({
     queryKey: ['positions'],
-    queryFn: () => fetchJSON('/api/positions'),
+    queryFn: () => fetchJSON('positions'),
     refetchInterval: 5000,
   })
 }
@@ -91,7 +85,7 @@ export function usePositions() {
 export function useStartAgent() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: () => postJSON('/api/agent/start'),
+    mutationFn: () => postJSON('agent/start'),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['agent-status'] }),
   })
 }
@@ -99,7 +93,7 @@ export function useStartAgent() {
 export function useStopAgent() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: () => postJSON('/api/agent/stop'),
+    mutationFn: () => postJSON('agent/stop'),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['agent-status'] }),
   })
 }
@@ -107,7 +101,7 @@ export function useStopAgent() {
 export function useUpdateConfig() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (config: Partial<AgentConfig>) => postJSON('/api/config', config),
+    mutationFn: (config: Partial<AgentConfig>) => postJSON('config', config),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['agent-status'] }),
   })
 }

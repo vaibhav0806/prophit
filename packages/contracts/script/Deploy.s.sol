@@ -8,7 +8,9 @@ import {ProphitVault} from "../src/ProphitVault.sol";
 
 contract Deploy is Script {
     function run() external {
-        uint256 deployerKey = vm.envOr("PRIVATE_KEY", uint256(0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80));
+        require(block.chainid == 31337, "Deploy.s.sol is for local dev only. Use DeployProduction.s.sol for real chains.");
+
+        uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerKey);
         address agent = vm.envOr("AGENT_ADDRESS", deployer);
 

@@ -3,6 +3,8 @@ import { privateKeyToAccount } from "viem/accounts";
 import { serve } from "@hono/node-server";
 import { config } from "./config.js";
 import { MockProvider } from "./providers/mock-provider.js";
+import { PolymarketProvider } from "./providers/polymarket-provider.js";
+import type { MarketProvider } from "./providers/base.js";
 import { detectArbitrage } from "./arbitrage/detector.js";
 import { VaultClient } from "./execution/vault-client.js";
 import { Executor } from "./execution/executor.js";
@@ -47,7 +49,22 @@ const providerB = new MockProvider(
   [config.marketId],
 );
 
-const providers = [providerA, providerB];
+const providers: MarketProvider[] = [providerA, providerB];
+
+if (config.polymarketAdapterAddress && config.polymarketTokenMap) {
+  const tokenMap = new Map(Object.entries(config.polymarketTokenMap));
+  const polyProvider = new PolymarketProvider(
+    config.polymarketAdapterAddress,
+    Object.keys(config.polymarketTokenMap).map((k) => k as `0x${string}`),
+    tokenMap,
+    config.polymarketClobUrl,
+  );
+  providers.push(polyProvider);
+}
+
+if (config.chainId === 31337) {
+  log.warn("Running on local devnet (chainId 31337). Set CHAIN_ID for production.");
+}
 
 // --- Execution ---
 const vaultClient = new VaultClient(walletClient, publicClient, config.vaultAddress);

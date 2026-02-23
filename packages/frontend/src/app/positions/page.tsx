@@ -65,16 +65,18 @@ export default function PositionsPage() {
 
       {positions && positions.length > 0 && (
         <div className="grid gap-4 md:grid-cols-2">
-          {positions.map((pos: Position) => (
+          {positions.map((pos: Position) => {
+            const totalCost = (BigInt(pos.costA) + BigInt(pos.costB)).toString()
+            return (
             <div
-              key={pos.id}
+              key={pos.positionId}
               className={`bg-gray-900 border rounded-lg p-4 ${
                 pos.closed ? 'border-emerald-800' : 'border-gray-800'
               }`}
             >
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-semibold text-gray-300">
-                  Position #{pos.id}
+                  Position #{pos.positionId}
                 </span>
                 <span
                   className={`text-xs px-2 py-1 rounded ${
@@ -118,7 +120,7 @@ export default function PositionsPage() {
                 </div>
                 <div className="flex justify-between border-t border-gray-800 pt-2">
                   <span className="text-gray-400 font-medium">Total Cost</span>
-                  <span className="font-mono font-medium">{formatValue(pos.totalCost, 6)}</span>
+                  <span className="font-mono font-medium">{formatValue(totalCost, 6)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Opened</span>
@@ -126,7 +128,8 @@ export default function PositionsPage() {
                 </div>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

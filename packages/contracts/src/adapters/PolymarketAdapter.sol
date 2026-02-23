@@ -5,56 +5,78 @@ import {IProtocolAdapter, MarketQuote} from "../interfaces/IProtocolAdapter.sol"
 import {IConditionalTokens} from "../interfaces/IConditionalTokens.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
-contract PolymarketAdapter is IProtocolAdapter, IERC1155Receiver, ERC165 {
+contract PolymarketAdapter is IProtocolAdapter, Ownable2Step, IERC1155Receiver, ERC165 {
     using SafeERC20 for IERC20;
 
-    IERC20 public immutable collateral; // USDC
+    IERC20 public immutable collateral;
     IConditionalTokens public immutable ctf;
-    address public owner;
+
+    // Access control: only approved callers (vault) can trade
+    mapping(address => bool) public approvedCallers;
 
     struct MarketConfig {
         bytes32 conditionId;
-        uint256 yesPositionId; // ERC1155 token ID for YES
-        uint256 noPositionId;  // ERC1155 token ID for NO
+        uint256 yesPositionId;
+        uint256 noPositionId;
         bool registered;
+        bool redeemed;
     }
 
-    // marketId => config
     mapping(bytes32 => MarketConfig) public markets;
 
-    // Stored quotes (set by agent off-chain via owner)
+    // Stored quotes (set off-chain by owner)
     mapping(bytes32 => MarketQuote) internal quotes;
 
-    // marketId => user => yes shares
-    mapping(bytes32 => mapping(address => uint256)) public yesShares;
-    // marketId => user => no shares
-    mapping(bytes32 => mapping(address => uint256)) public noShares;
+    // Adapter-level balance tracking (not per-user)
+    mapping(bytes32 => uint256) public yesBalance;
+    mapping(bytes32 => uint256) public noBalance;
 
-    // Adapter's own inventory of unused outcome tokens from splits
+    // Inventory of unused outcome tokens from splits (opposite side waiting to be used)
     mapping(bytes32 => uint256) public yesInventory;
     mapping(bytes32 => uint256) public noInventory;
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "not owner");
+    // Events
+    event CallerAdded(address indexed caller);
+    event CallerRemoved(address indexed caller);
+    event MarketRegistered(bytes32 indexed marketId, bytes32 conditionId);
+    event OutcomeBought(bytes32 indexed marketId, address indexed buyer, bool buyYes, uint256 amount, uint256 shares);
+    event OutcomeSold(bytes32 indexed marketId, address indexed seller, bool sellYes, uint256 amount, uint256 payout);
+    event Redeemed(bytes32 indexed marketId, address indexed caller, uint256 payout);
+    event QuoteUpdated(bytes32 indexed marketId);
+
+    modifier onlyApproved() {
+        require(approvedCallers[msg.sender] || msg.sender == owner(), "not approved");
         _;
     }
 
-    constructor(address _collateral, address _ctf) {
+    constructor(address _collateral, address _ctf) Ownable(msg.sender) {
+        require(_collateral != address(0), "zero collateral");
+        require(_ctf != address(0), "zero ctf");
         collateral = IERC20(_collateral);
         ctf = IConditionalTokens(_ctf);
-        owner = msg.sender;
     }
 
-    /// @notice Register a Polymarket market
-    function registerMarket(
-        bytes32 marketId,
-        bytes32 conditionId
-    ) external onlyOwner {
-        // Compute position IDs for YES (indexSet=1) and NO (indexSet=2)
+    // --- Access control ---
+
+    function addCaller(address caller) external onlyOwner {
+        require(caller != address(0), "zero address");
+        approvedCallers[caller] = true;
+        emit CallerAdded(caller);
+    }
+
+    function removeCaller(address caller) external onlyOwner {
+        approvedCallers[caller] = false;
+        emit CallerRemoved(caller);
+    }
+
+    // --- Market registration ---
+
+    function registerMarket(bytes32 marketId, bytes32 conditionId) external onlyOwner {
         bytes32 yesCollectionId = ctf.getCollectionId(bytes32(0), conditionId, 1);
         bytes32 noCollectionId = ctf.getCollectionId(bytes32(0), conditionId, 2);
         uint256 yesPositionId = ctf.getPositionId(collateral, yesCollectionId);
@@ -64,11 +86,15 @@ contract PolymarketAdapter is IProtocolAdapter, IERC1155Receiver, ERC165 {
             conditionId: conditionId,
             yesPositionId: yesPositionId,
             noPositionId: noPositionId,
-            registered: true
+            registered: true,
+            redeemed: false
         });
+
+        emit MarketRegistered(marketId, conditionId);
     }
 
-    /// @notice Set quote data (called by agent/owner off-chain)
+    // --- Quotes ---
+
     function setQuote(
         bytes32 marketId,
         uint256 yesPrice,
@@ -84,6 +110,7 @@ contract PolymarketAdapter is IProtocolAdapter, IERC1155Receiver, ERC165 {
             noLiquidity: noLiq,
             resolved: isResolved(marketId)
         });
+        emit QuoteUpdated(marketId);
     }
 
     function getQuote(bytes32 marketId) external view override returns (MarketQuote memory) {
@@ -92,7 +119,9 @@ contract PolymarketAdapter is IProtocolAdapter, IERC1155Receiver, ERC165 {
         return q;
     }
 
-    function buyOutcome(bytes32 marketId, bool buyYes, uint256 amount) external override returns (uint256 shares) {
+    // --- Trading ---
+
+    function buyOutcome(bytes32 marketId, bool buyYes, uint256 amount) external override onlyApproved returns (uint256 shares) {
         MarketConfig storage config = markets[marketId];
         require(config.registered, "market not registered");
         require(!isResolved(marketId), "market resolved");
@@ -102,11 +131,9 @@ contract PolymarketAdapter is IProtocolAdapter, IERC1155Receiver, ERC165 {
 
         // Check if we have inventory of the requested side
         if (buyYes && yesInventory[marketId] >= amount) {
-            // Use existing YES inventory
             yesInventory[marketId] -= amount;
             shares = amount;
         } else if (!buyYes && noInventory[marketId] >= amount) {
-            // Use existing NO inventory
             noInventory[marketId] -= amount;
             shares = amount;
         } else {
@@ -128,91 +155,95 @@ contract PolymarketAdapter is IProtocolAdapter, IERC1155Receiver, ERC165 {
             }
         }
 
-        // Credit shares to caller
+        // Credit to adapter-level balance
         if (buyYes) {
-            yesShares[marketId][msg.sender] += shares;
+            yesBalance[marketId] += shares;
         } else {
-            noShares[marketId][msg.sender] += shares;
+            noBalance[marketId] += shares;
         }
+
+        emit OutcomeBought(marketId, msg.sender, buyYes, amount, shares);
     }
 
-    function sellOutcome(bytes32 marketId, bool sellYes, uint256 shares) external override returns (uint256 payout) {
+    function sellOutcome(bytes32 marketId, bool sellYes, uint256 shares) external override onlyApproved returns (uint256 payout) {
         MarketConfig storage config = markets[marketId];
         require(config.registered, "market not registered");
         require(!isResolved(marketId), "market resolved");
 
-        // Deduct shares from caller
+        // Debit adapter-level balance
         if (sellYes) {
-            require(yesShares[marketId][msg.sender] >= shares, "insufficient shares");
-            yesShares[marketId][msg.sender] -= shares;
+            require(yesBalance[marketId] >= shares, "insufficient balance");
+            yesBalance[marketId] -= shares;
         } else {
-            require(noShares[marketId][msg.sender] >= shares, "insufficient shares");
-            noShares[marketId][msg.sender] -= shares;
+            require(noBalance[marketId] >= shares, "insufficient balance");
+            noBalance[marketId] -= shares;
         }
 
-        // Try to merge with opposite inventory
+        // Require sufficient opposite inventory to merge — revert if not
         uint256 oppositeAvailable = sellYes ? noInventory[marketId] : yesInventory[marketId];
-        uint256 mergeAmount = shares < oppositeAvailable ? shares : oppositeAvailable;
+        require(oppositeAvailable >= shares, "insufficient inventory to merge");
 
-        if (mergeAmount > 0) {
-            // Merge YES+NO back into collateral
-            uint256[] memory partition = new uint256[](2);
-            partition[0] = 1;
-            partition[1] = 2;
-            ctf.mergePositions(collateral, bytes32(0), config.conditionId, partition, mergeAmount);
+        // Merge YES+NO back into collateral
+        uint256[] memory partition = new uint256[](2);
+        partition[0] = 1;
+        partition[1] = 2;
+        ctf.mergePositions(collateral, bytes32(0), config.conditionId, partition, shares);
 
-            if (sellYes) {
-                noInventory[marketId] -= mergeAmount;
-            } else {
-                yesInventory[marketId] -= mergeAmount;
-            }
-
-            payout = mergeAmount;
-            collateral.safeTransfer(msg.sender, payout);
+        if (sellYes) {
+            noInventory[marketId] -= shares;
+        } else {
+            yesInventory[marketId] -= shares;
         }
 
-        // Any remaining shares that couldn't be merged go back to inventory
-        uint256 remaining = shares - mergeAmount;
-        if (remaining > 0) {
-            if (sellYes) {
-                yesInventory[marketId] += remaining;
-            } else {
-                noInventory[marketId] += remaining;
-            }
-            // No payout for unmerged shares -- they stay as inventory
-        }
+        payout = shares;
+        collateral.safeTransfer(msg.sender, payout);
+
+        emit OutcomeSold(marketId, msg.sender, sellYes, shares, payout);
     }
 
-    function redeem(bytes32 marketId) external override returns (uint256 payout) {
+    function redeem(bytes32 marketId) external override onlyApproved returns (uint256 payout) {
         MarketConfig storage config = markets[marketId];
         require(config.registered, "market not registered");
         require(isResolved(marketId), "not resolved");
 
-        uint256 callerYes = yesShares[marketId][msg.sender];
-        uint256 callerNo = noShares[marketId][msg.sender];
-        yesShares[marketId][msg.sender] = 0;
-        noShares[marketId][msg.sender] = 0;
+        uint256 balBefore = collateral.balanceOf(address(this));
 
-        // Determine payout ratio from CTF
-        uint256 payoutNum0 = ctf.payoutNumerators(config.conditionId, 0); // YES payout
-        uint256 payoutNum1 = ctf.payoutNumerators(config.conditionId, 1); // NO payout
-        uint256 payoutDenom = ctf.payoutDenominator(config.conditionId);
+        if (!config.redeemed) {
+            config.redeemed = true;
 
-        // Calculate USDC payout for each side
-        uint256 yesPayout = payoutDenom > 0 ? (callerYes * payoutNum0) / payoutDenom : 0;
-        uint256 noPayout = payoutDenom > 0 ? (callerNo * payoutNum1) / payoutDenom : 0;
-        payout = yesPayout + noPayout;
-
-        if (payout > 0) {
-            // Redeem the CTF tokens to get USDC
+            // Redeem all CTF tokens for this condition
             uint256[] memory indexSets = new uint256[](2);
             indexSets[0] = 1; // YES
             indexSets[1] = 2; // NO
             ctf.redeemPositions(collateral, bytes32(0), config.conditionId, indexSets);
 
-            // Transfer payout to caller
+            // Merge any remaining paired inventory to recover collateral
+            uint256 mergeable = yesInventory[marketId] < noInventory[marketId]
+                ? yesInventory[marketId]
+                : noInventory[marketId];
+            if (mergeable > 0) {
+                uint256[] memory partition = new uint256[](2);
+                partition[0] = 1;
+                partition[1] = 2;
+                ctf.mergePositions(collateral, bytes32(0), config.conditionId, partition, mergeable);
+                yesInventory[marketId] -= mergeable;
+                noInventory[marketId] -= mergeable;
+            }
+        }
+
+        uint256 balAfter = collateral.balanceOf(address(this));
+        payout = balAfter - balBefore;
+
+        // Send everything to caller (the vault)
+        if (payout > 0) {
             collateral.safeTransfer(msg.sender, payout);
         }
+
+        // Reset balances
+        yesBalance[marketId] = 0;
+        noBalance[marketId] = 0;
+
+        emit Redeemed(marketId, msg.sender, payout);
     }
 
     function isResolved(bytes32 marketId) public view override returns (bool) {

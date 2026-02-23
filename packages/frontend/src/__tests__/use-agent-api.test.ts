@@ -3,11 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
 
-// Stub env vars before importing the module
-vi.stubEnv('NEXT_PUBLIC_AGENT_URL', 'http://test-agent:3001')
-vi.stubEnv('NEXT_PUBLIC_AGENT_API_KEY', 'test-key')
-
-// Must import after env stubs
+// Must import after env stubs (none needed now — proxy uses server-side vars)
 const { useAgentStatus, useStartAgent, useStopAgent } = await import(
   '@/hooks/use-agent-api'
 )
@@ -27,7 +23,7 @@ function createWrapper() {
 
 const mockStatus = {
   running: true,
-  lastScan: '2024-01-01T00:00:00Z',
+  lastScan: 1704067200,
   tradesExecuted: 5,
   uptime: 60000,
   config: {
@@ -48,7 +44,7 @@ describe('useAgentStatus', () => {
     vi.restoreAllMocks()
   })
 
-  it('calls the correct URL and returns data', async () => {
+  it('calls the proxy URL and returns data', async () => {
     const { result } = renderHook(() => useAgentStatus(), {
       wrapper: createWrapper(),
     })
@@ -56,7 +52,7 @@ describe('useAgentStatus', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      'http://test-agent:3001/api/status',
+      '/api/agent/status',
     )
     expect(result.current.data).toEqual(mockStatus)
   })
@@ -89,7 +85,7 @@ describe('useStartAgent', () => {
     vi.restoreAllMocks()
   })
 
-  it('sends POST to /api/agent/start with auth header', async () => {
+  it('sends POST to /api/agent/agent/start', async () => {
     const { result } = renderHook(() => useStartAgent(), {
       wrapper: createWrapper(),
     })
@@ -99,11 +95,10 @@ describe('useStartAgent', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      'http://test-agent:3001/api/agent/start',
+      '/api/agent/agent/start',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
-          Authorization: 'Bearer test-key',
           'Content-Type': 'application/json',
         }),
       }),
@@ -122,7 +117,7 @@ describe('useStopAgent', () => {
     vi.restoreAllMocks()
   })
 
-  it('sends POST to /api/agent/stop with auth header', async () => {
+  it('sends POST to /api/agent/agent/stop', async () => {
     const { result } = renderHook(() => useStopAgent(), {
       wrapper: createWrapper(),
     })
@@ -132,11 +127,10 @@ describe('useStopAgent', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      'http://test-agent:3001/api/agent/stop',
+      '/api/agent/agent/stop',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
-          Authorization: 'Bearer test-key',
           'Content-Type': 'application/json',
         }),
       }),

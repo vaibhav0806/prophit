@@ -1,6 +1,7 @@
 import { MarketProvider } from "./base.js";
 import type { MarketQuote } from "../types.js";
 import { log } from "../logger.js";
+import { withRetry } from "../retry.js";
 
 interface PolymarketBook {
   market: string;
@@ -10,6 +11,13 @@ interface PolymarketBook {
 }
 
 const CLOB_BASE_DEFAULT = "https://clob.polymarket.com";
+
+/** Convert a decimal string like "0.55" to a bigint with the given decimal places. */
+export function decimalToBigInt(value: string, decimals: number): bigint {
+  const [whole, frac = ""] = value.split(".");
+  const paddedFrac = frac.slice(0, decimals).padEnd(decimals, "0");
+  return BigInt(whole + paddedFrac);
+}
 
 export class PolymarketProvider extends MarketProvider {
   private marketIds: `0x${string}`[];
@@ -55,11 +63,11 @@ export class PolymarketProvider extends MarketProvider {
 
         // Liquidity = total size on ask side (in USDC 6 decimals)
         const yesLiquidity = yesBook.asks.reduce(
-          (sum, o) => sum + BigInt(Math.floor(Number(o.size) * 1e6)),
+          (sum, o) => sum + decimalToBigInt(o.size, 6),
           0n,
         );
         const noLiquidity = noBook.asks.reduce(
-          (sum, o) => sum + BigInt(Math.floor(Number(o.size) * 1e6)),
+          (sum, o) => sum + decimalToBigInt(o.size, 6),
           0n,
         );
 
@@ -80,14 +88,23 @@ export class PolymarketProvider extends MarketProvider {
   }
 
   private async fetchBook(tokenId: string): Promise<PolymarketBook> {
-    const res = await fetch(`${this.clobBase}/book?token_id=${tokenId}`);
-    if (!res.ok) throw new Error(`CLOB API error: ${res.status}`);
-    return res.json();
+    return withRetry(
+      async () => {
+        const url = `${this.clobBase}/book?token_id=${tokenId}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+        if (!res.ok) throw new Error(`CLOB API error: ${res.status}`);
+        const data = await res.json();
+        if (!data.bids || !data.asks || !Array.isArray(data.bids) || !Array.isArray(data.asks)) {
+          throw new Error(`Invalid CLOB response shape for token ${tokenId}`);
+        }
+        return data as PolymarketBook;
+      },
+      { label: `fetchBook(${tokenId})` },
+    );
   }
 
   /** Convert a decimal price string like "0.55" to 18-decimal bigint (0.55e18) */
   private priceToWei(price: string): bigint {
-    const num = Number(price);
-    return BigInt(Math.floor(num * 1e18));
+    return decimalToBigInt(price, 18);
   }
 }

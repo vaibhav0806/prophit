@@ -1,8 +1,9 @@
 import { readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { log } from "./logger.js";
 import type { Position } from "./types.js";
 
-const STATE_FILE = "agent-state.json";
+const STATE_FILE = process.env.STATE_FILE_PATH || path.join(process.cwd(), "agent-state.json");
 
 export interface PersistedState {
   tradesExecuted: number;

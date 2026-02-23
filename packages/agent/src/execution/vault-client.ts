@@ -2,6 +2,7 @@ import { parseEventLogs } from "viem";
 import type { PublicClient, WalletClient } from "viem";
 import type { Position } from "../types.js";
 import { log } from "../logger.js";
+import { withRetry } from "../retry.js";
 
 const vaultAbi = [
   {
@@ -118,7 +119,7 @@ export class VaultClient {
       account: this.walletClient.account!,
     });
     const hash = await this.walletClient.writeContract(request);
-    const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
+    const receipt = await this.publicClient.waitForTransactionReceipt({ hash, timeout: 120_000 });
     if (receipt.status === "reverted") {
       throw new Error(`Transaction reverted: ${hash}`);
     }
@@ -159,7 +160,7 @@ export class VaultClient {
       account: this.walletClient.account!,
     });
     const hash = await this.walletClient.writeContract(request);
-    const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
+    const receipt = await this.publicClient.waitForTransactionReceipt({ hash, timeout: 120_000 });
     if (receipt.status === "reverted") {
       throw new Error(`Transaction reverted: ${hash}`);
     }
@@ -188,12 +189,15 @@ export class VaultClient {
   }
 
   async getPosition(positionId: number): Promise<Position> {
-    const result = await this.publicClient.readContract({
-      address: this.vaultAddress,
-      abi: vaultAbi,
-      functionName: "getPosition",
-      args: [BigInt(positionId)],
-    });
+    const result = await withRetry(
+      () => this.publicClient.readContract({
+        address: this.vaultAddress,
+        abi: vaultAbi,
+        functionName: "getPosition",
+        args: [BigInt(positionId)],
+      }),
+      { label: `getPosition(${positionId})` },
+    );
 
     return {
       positionId,
@@ -212,19 +216,25 @@ export class VaultClient {
   }
 
   async getPositionCount(): Promise<bigint> {
-    return this.publicClient.readContract({
-      address: this.vaultAddress,
-      abi: vaultAbi,
-      functionName: "positionCount",
-    });
+    return withRetry(
+      () => this.publicClient.readContract({
+        address: this.vaultAddress,
+        abi: vaultAbi,
+        functionName: "positionCount",
+      }),
+      { label: "getPositionCount" },
+    );
   }
 
   async getVaultBalance(): Promise<bigint> {
-    return this.publicClient.readContract({
-      address: this.vaultAddress,
-      abi: vaultAbi,
-      functionName: "vaultBalance",
-    });
+    return withRetry(
+      () => this.publicClient.readContract({
+        address: this.vaultAddress,
+        abi: vaultAbi,
+        functionName: "vaultBalance",
+      }),
+      { label: "getVaultBalance" },
+    );
   }
 
   async getAllPositions(): Promise<Position[]> {

@@ -3,6 +3,7 @@ import type { ArbitOpportunity, Position } from "../types.js";
 import type { VaultClient } from "./vault-client.js";
 import type { Config } from "../config.js";
 import { log } from "../logger.js";
+import { withRetry } from "../retry.js";
 
 const isResolvedAbi = [
   {
@@ -39,7 +40,10 @@ export class Executor {
 
     // Estimate gas cost for profitability check
     try {
-      const gasPrice = await this.vaultClient.publicClient.getGasPrice();
+      const gasPrice = await withRetry(
+        () => this.vaultClient.publicClient.getGasPrice(),
+        { label: "getGasPrice" },
+      );
       // openPosition typically uses ~400k gas
       const estimatedGasCost = gasPrice * 400_000n;
 

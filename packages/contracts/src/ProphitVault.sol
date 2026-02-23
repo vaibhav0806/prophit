@@ -27,7 +27,7 @@ contract ProphitVault is Ownable2Step, Pausable, ReentrancyGuard {
     }
 
     // --- State ---
-    IERC20 public immutable usdt;
+    IERC20 public immutable collateral;
     address public agent;
 
     Position[] public positions;
@@ -36,7 +36,7 @@ contract ProphitVault is Ownable2Step, Pausable, ReentrancyGuard {
     // Circuit breakers
     uint256 public dailyTradeLimit;    // max trades per day
     uint256 public dailyLossLimit;     // max loss per day (6 decimals)
-    uint256 public positionSizeCap;    // max USDT per side of a position
+    uint256 public positionSizeCap;    // max collateral per side of a position
     uint256 public cooldownSeconds;    // min seconds between trades
 
     // Circuit breaker tracking
@@ -62,13 +62,13 @@ contract ProphitVault is Ownable2Step, Pausable, ReentrancyGuard {
         _;
     }
 
-    constructor(address _usdt, address _agent) Ownable(msg.sender) {
-        require(_usdt != address(0), "zero usdt");
+    constructor(address _collateral, address _agent) Ownable(msg.sender) {
+        require(_collateral != address(0), "zero collateral");
         require(_agent != address(0), "zero agent");
-        usdt = IERC20(_usdt);
+        collateral = IERC20(_collateral);
         agent = _agent;
 
-        // Defaults (USDT has 6 decimals)
+        // Defaults (6 decimals)
         dailyTradeLimit = 50;
         dailyLossLimit = 1000e6;
         positionSizeCap = 500e6;
@@ -77,12 +77,12 @@ contract ProphitVault is Ownable2Step, Pausable, ReentrancyGuard {
 
     // --- Owner functions ---
     function deposit(uint256 amount) external onlyOwner {
-        usdt.safeTransferFrom(msg.sender, address(this), amount);
+        collateral.safeTransferFrom(msg.sender, address(this), amount);
         emit Deposited(msg.sender, amount);
     }
 
     function withdraw(uint256 amount) external onlyOwner {
-        usdt.safeTransfer(owner(), amount);
+        collateral.safeTransfer(owner(), amount);
         emit Withdrawn(owner(), amount);
     }
 
@@ -157,16 +157,16 @@ contract ProphitVault is Ownable2Step, Pausable, ReentrancyGuard {
         );
 
         // Approve adapters
-        usdt.forceApprove(adapterA, amountA);
-        usdt.forceApprove(adapterB, amountB);
+        collateral.forceApprove(adapterA, amountA);
+        collateral.forceApprove(adapterB, amountB);
 
         // Execute trades
         uint256 sharesA = IProtocolAdapter(adapterA).buyOutcome(marketIdA, buyYesOnA, amountA);
         uint256 sharesB = IProtocolAdapter(adapterB).buyOutcome(marketIdB, !buyYesOnA, amountB);
 
         // Reset approvals to prevent dangling allowance
-        usdt.forceApprove(adapterA, 0);
-        usdt.forceApprove(adapterB, 0);
+        collateral.forceApprove(adapterA, 0);
+        collateral.forceApprove(adapterB, 0);
 
         require(sharesA >= minSharesA, "slippage A");
         require(sharesB >= minSharesB, "slippage B");
@@ -201,10 +201,10 @@ contract ProphitVault is Ownable2Step, Pausable, ReentrancyGuard {
         // CEI: mark closed before external calls to prevent reentrancy
         pos.closed = true;
 
-        uint256 balBefore = usdt.balanceOf(address(this));
+        uint256 balBefore = collateral.balanceOf(address(this));
         IProtocolAdapter(pos.adapterA).redeem(pos.marketIdA);
         IProtocolAdapter(pos.adapterB).redeem(pos.marketIdB);
-        uint256 balAfter = usdt.balanceOf(address(this));
+        uint256 balAfter = collateral.balanceOf(address(this));
         totalPayout = balAfter - balBefore;
 
         require(totalPayout >= minPayout, "payout below min");
@@ -230,7 +230,7 @@ contract ProphitVault is Ownable2Step, Pausable, ReentrancyGuard {
     }
 
     function vaultBalance() external view returns (uint256) {
-        return usdt.balanceOf(address(this));
+        return collateral.balanceOf(address(this));
     }
 
     // --- Internal ---

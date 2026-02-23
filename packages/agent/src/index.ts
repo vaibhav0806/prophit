@@ -3,7 +3,8 @@ import { privateKeyToAccount } from "viem/accounts";
 import { serve } from "@hono/node-server";
 import { config } from "./config.js";
 import { MockProvider } from "./providers/mock-provider.js";
-import { PolymarketProvider } from "./providers/polymarket-provider.js";
+import { OpinionProvider } from "./providers/opinion-provider.js";
+import { PredictProvider } from "./providers/predict-provider.js";
 import type { MarketProvider } from "./providers/base.js";
 import { detectArbitrage } from "./arbitrage/detector.js";
 import { VaultClient } from "./execution/vault-client.js";
@@ -18,8 +19,8 @@ const account = privateKeyToAccount(config.privateKey);
 
 const chain = defineChain({
   id: config.chainId,
-  name: "prophit-chain",
-  nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+  name: config.chainId === 56 ? "BNB Smart Chain" : "prophit-chain",
+  nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
   rpcUrls: { default: { http: [config.rpcUrl] } },
 });
 
@@ -51,15 +52,28 @@ const providerB = new MockProvider(
 
 const providers: MarketProvider[] = [providerA, providerB];
 
-if (config.polymarketAdapterAddress && config.polymarketTokenMap) {
-  const tokenMap = new Map(Object.entries(config.polymarketTokenMap));
-  const polyProvider = new PolymarketProvider(
-    config.polymarketAdapterAddress,
-    Object.keys(config.polymarketTokenMap).map((k) => k as `0x${string}`),
+if (config.opinionAdapterAddress && config.opinionApiKey && config.opinionTokenMap) {
+  const tokenMap = new Map(Object.entries(config.opinionTokenMap));
+  const opinionProvider = new OpinionProvider(
+    config.opinionAdapterAddress,
+    config.opinionApiBase,
+    config.opinionApiKey,
+    Object.keys(config.opinionTokenMap).map((k) => k as `0x${string}`),
     tokenMap,
-    config.polymarketClobUrl,
   );
-  providers.push(polyProvider);
+  providers.push(opinionProvider);
+}
+
+if (config.predictAdapterAddress && config.predictApiKey && config.predictMarketMap) {
+  const marketMap = new Map(Object.entries(config.predictMarketMap));
+  const predictProvider = new PredictProvider(
+    config.predictAdapterAddress,
+    config.predictApiBase,
+    config.predictApiKey,
+    Object.keys(config.predictMarketMap).map((k) => k as `0x${string}`),
+    marketMap,
+  );
+  providers.push(predictProvider);
 }
 
 if (config.chainId === 31337) {

@@ -10,7 +10,7 @@ import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Re
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
-contract PolymarketAdapter is IProtocolAdapter, Ownable2Step, IERC1155Receiver, ERC165 {
+contract OpinionAdapter is IProtocolAdapter, Ownable2Step, IERC1155Receiver, ERC165 {
     using SafeERC20 for IERC20;
 
     IERC20 public immutable collateral;
@@ -54,9 +54,9 @@ contract PolymarketAdapter is IProtocolAdapter, Ownable2Step, IERC1155Receiver, 
         _;
     }
 
-    constructor(address _collateral, address _ctf) Ownable(msg.sender) {
-        require(_collateral != address(0), "zero collateral");
+    constructor(address _ctf, address _collateral) Ownable(msg.sender) {
         require(_ctf != address(0), "zero ctf");
+        require(_collateral != address(0), "zero collateral");
         collateral = IERC20(_collateral);
         ctf = IConditionalTokens(_ctf);
     }

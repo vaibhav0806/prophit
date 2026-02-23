@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { decimalToBigInt } from "../providers/polymarket-provider.js";
+import { decimalToBigInt } from "../utils.js";
 
 describe("decimalToBigInt", () => {
   it("converts a simple decimal to 18 decimals", () => {

@@ -5,7 +5,7 @@ import {Test, console2} from "forge-std/Test.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IConditionalTokens} from "../src/interfaces/IConditionalTokens.sol";
-import {PolymarketAdapter} from "../src/adapters/PolymarketAdapter.sol";
+import {OpinionAdapter} from "../src/adapters/OpinionAdapter.sol";
 import {MockUSDT} from "../src/mocks/MockUSDT.sol";
 
 contract MockConditionalTokens is IConditionalTokens {
@@ -140,23 +140,23 @@ contract MockConditionalTokens is IConditionalTokens {
     }
 }
 
-contract PolymarketAdapterTest is Test {
-    PolymarketAdapter adapter;
-    MockUSDT usdc;
+contract OpinionAdapterTest is Test {
+    OpinionAdapter adapter;
+    MockUSDT usdt;
     MockConditionalTokens ctf;
 
     address owner = address(this);
     address vault = address(0xA1);
     address rando = address(0xB2);
 
-    bytes32 marketId = keccak256("POLY-MARKET-1");
+    bytes32 marketId = keccak256("OPINION-MARKET-1");
     bytes32 conditionId = keccak256("CONDITION-1");
 
     function setUp() public {
-        usdc = new MockUSDT();
-        ctf = new MockConditionalTokens(address(usdc));
+        usdt = new MockUSDT();
+        ctf = new MockConditionalTokens(address(usdt));
 
-        adapter = new PolymarketAdapter(address(usdc), address(ctf));
+        adapter = new OpinionAdapter(address(ctf), address(usdt));
 
         // Add vault as approved caller
         adapter.addCaller(vault);
@@ -165,10 +165,10 @@ contract PolymarketAdapterTest is Test {
         adapter.registerMarket(marketId, conditionId);
 
         // Fund CTF with collateral so it can pay out on merges/redemptions
-        usdc.mint(address(ctf), 1_000_000e6);
+        usdt.mint(address(ctf), 1_000_000e6);
 
         // Fund vault
-        usdc.mint(vault, 100_000e6);
+        usdt.mint(vault, 100_000e6);
     }
 
     // --- Market registration ---
@@ -202,6 +202,21 @@ contract PolymarketAdapterTest is Test {
         assertFalse(q.resolved);
     }
 
+    function test_getQuote_reflectsResolution() public {
+        adapter.setQuote(marketId, 0.55e18, 0.45e18, 10_000e6, 8_000e6);
+
+        // Not resolved yet
+        MarketQuoteHelper.MarketQuote memory q1 = MarketQuoteHelper.getQuote(adapter, marketId);
+        assertFalse(q1.resolved);
+
+        // Resolve
+        ctf.resolve(conditionId, true);
+
+        // Now resolved
+        MarketQuoteHelper.MarketQuote memory q2 = MarketQuoteHelper.getQuote(adapter, marketId);
+        assertTrue(q2.resolved);
+    }
+
     // --- Access control ---
 
     function test_onlyApproved_buyOutcome() public {
@@ -226,8 +241,8 @@ contract PolymarketAdapterTest is Test {
 
     function test_ownerCanCallWithoutBeingApproved() public {
         // Owner is implicitly approved via the onlyApproved modifier
-        usdc.mint(owner, 100e6);
-        usdc.approve(address(adapter), 100e6);
+        usdt.mint(owner, 100e6);
+        usdt.approve(address(adapter), 100e6);
         uint256 shares = adapter.buyOutcome(marketId, true, 100e6);
         assertEq(shares, 100e6);
     }
@@ -268,7 +283,7 @@ contract PolymarketAdapterTest is Test {
     function test_buyOutcome_yes() public {
         uint256 amount = 100e6;
         vm.startPrank(vault);
-        usdc.approve(address(adapter), amount);
+        usdt.approve(address(adapter), amount);
         uint256 shares = adapter.buyOutcome(marketId, true, amount);
         vm.stopPrank();
 
@@ -282,7 +297,7 @@ contract PolymarketAdapterTest is Test {
     function test_buyOutcome_no() public {
         uint256 amount = 50e6;
         vm.startPrank(vault);
-        usdc.approve(address(adapter), amount);
+        usdt.approve(address(adapter), amount);
         uint256 shares = adapter.buyOutcome(marketId, false, amount);
         vm.stopPrank();
 
@@ -298,12 +313,12 @@ contract PolymarketAdapterTest is Test {
         vm.startPrank(vault);
 
         // First buy YES — creates NO inventory
-        usdc.approve(address(adapter), amount);
+        usdt.approve(address(adapter), amount);
         adapter.buyOutcome(marketId, true, amount);
         assertEq(adapter.noInventory(marketId), amount);
 
         // Now buy NO — should use NO inventory instead of splitting
-        usdc.approve(address(adapter), amount);
+        usdt.approve(address(adapter), amount);
         adapter.buyOutcome(marketId, false, amount);
         vm.stopPrank();
 
@@ -312,18 +327,35 @@ contract PolymarketAdapterTest is Test {
         assertEq(adapter.noBalance(marketId), amount);
     }
 
+    function test_buyOutcome_marketNotRegistered() public {
+        bytes32 badMarket = keccak256("NONEXISTENT");
+        vm.prank(vault);
+        vm.expectRevert("market not registered");
+        adapter.buyOutcome(badMarket, true, 100e6);
+    }
+
+    function test_buyOutcome_marketResolved() public {
+        ctf.resolve(conditionId, true);
+
+        vm.startPrank(vault);
+        usdt.approve(address(adapter), 100e6);
+        vm.expectRevert("market resolved");
+        adapter.buyOutcome(marketId, true, 100e6);
+        vm.stopPrank();
+    }
+
     // --- Sell outcome ---
 
     function test_sellOutcome() public {
         uint256 amount = 100e6;
         vm.startPrank(vault);
-        usdc.approve(address(adapter), amount);
+        usdt.approve(address(adapter), amount);
         adapter.buyOutcome(marketId, true, amount);
 
         // Now sell YES — merges with NO inventory and returns collateral
-        uint256 balBefore = usdc.balanceOf(vault);
+        uint256 balBefore = usdt.balanceOf(vault);
         uint256 payout = adapter.sellOutcome(marketId, true, amount);
-        uint256 balAfter = usdc.balanceOf(vault);
+        uint256 balAfter = usdt.balanceOf(vault);
         vm.stopPrank();
 
         assertEq(payout, amount); // full merge possible since split created equal NO inventory
@@ -339,30 +371,18 @@ contract PolymarketAdapterTest is Test {
     }
 
     function test_sellOutcome_insufficientInventory() public {
-        // Buy YES and NO — both create inventory for opposite side
-        // But selling requires opposite inventory to merge
         uint256 amount = 100e6;
         vm.startPrank(vault);
 
         // Buy YES (creates NO inventory)
-        usdc.approve(address(adapter), amount);
+        usdt.approve(address(adapter), amount);
         adapter.buyOutcome(marketId, true, amount);
 
         // Buy NO using the NO inventory — inventory now 0
-        usdc.approve(address(adapter), amount);
+        usdt.approve(address(adapter), amount);
         adapter.buyOutcome(marketId, false, amount);
 
         // Try selling YES — no NO inventory left, should revert
-        // We have yesInventory = 100e6 from the second buy, but need noInventory to sell YES
-        // Actually second buy of NO uses noInventory, so noInventory = 0.
-        // yesInventory = 100e6 (from second buy that split).
-        // Wait — second buy uses existing noInventory, so NO split happened. Let me recalculate.
-        // After first buy YES (100e6): yesBalance=100, noInventory=100
-        // Second buy NO (100e6): noInventory >= 100, so uses inventory. noInventory=0, noBalance=100
-        // No new inventory created since we used existing.
-        // Now: yesBalance=100, noBalance=100, yesInventory=0, noInventory=0
-        // Selling YES requires noInventory >= amount. noInventory = 0. Should revert.
-
         vm.expectRevert("insufficient inventory to merge");
         adapter.sellOutcome(marketId, true, amount);
         vm.stopPrank();
@@ -373,7 +393,7 @@ contract PolymarketAdapterTest is Test {
     function test_redeem_yesWins() public {
         uint256 amount = 100e6;
         vm.startPrank(vault);
-        usdc.approve(address(adapter), amount);
+        usdt.approve(address(adapter), amount);
         adapter.buyOutcome(marketId, true, amount);
         vm.stopPrank();
 
@@ -384,7 +404,6 @@ contract PolymarketAdapterTest is Test {
         uint256 payout = adapter.redeem(marketId);
 
         // YES wins: YES tokens redeem at 1:1, NO inventory redeems at 0
-        // payout = 100e6 (from YES tokens)
         assertEq(payout, amount);
         assertEq(adapter.yesBalance(marketId), 0);
         assertEq(adapter.noBalance(marketId), 0);
@@ -393,7 +412,7 @@ contract PolymarketAdapterTest is Test {
     function test_redeem_noWins() public {
         uint256 amount = 100e6;
         vm.startPrank(vault);
-        usdc.approve(address(adapter), amount);
+        usdt.approve(address(adapter), amount);
         adapter.buyOutcome(marketId, false, amount);
         vm.stopPrank();
 
@@ -412,7 +431,7 @@ contract PolymarketAdapterTest is Test {
     function test_redeem_onlyOnce() public {
         uint256 amount = 100e6;
         vm.startPrank(vault);
-        usdc.approve(address(adapter), amount);
+        usdt.approve(address(adapter), amount);
         adapter.buyOutcome(marketId, true, amount);
         vm.stopPrank();
 
@@ -445,6 +464,11 @@ contract PolymarketAdapterTest is Test {
         assertTrue(adapter.isResolved(marketId));
     }
 
+    function test_isResolved_unregisteredMarket() public {
+        bytes32 badMarket = keccak256("NONEXISTENT");
+        assertFalse(adapter.isResolved(badMarket));
+    }
+
     // --- Ownable2Step ---
 
     function test_transferOwnership_twoStep() public {
@@ -472,12 +496,12 @@ contract PolymarketAdapterTest is Test {
 
     function test_constructor_zeroCollateral() public {
         vm.expectRevert("zero collateral");
-        new PolymarketAdapter(address(0), address(ctf));
+        new OpinionAdapter(address(ctf), address(0));
     }
 
     function test_constructor_zeroCTF() public {
         vm.expectRevert("zero ctf");
-        new PolymarketAdapter(address(usdc), address(0));
+        new OpinionAdapter(address(0), address(usdt));
     }
 }
 
@@ -492,7 +516,7 @@ library MarketQuoteHelper {
         bool resolved;
     }
 
-    function getQuote(PolymarketAdapter adapter, bytes32 marketId) internal view returns (MarketQuote memory q) {
+    function getQuote(OpinionAdapter adapter, bytes32 marketId) internal view returns (MarketQuote memory q) {
         (bytes32 mid, uint256 yp, uint256 np, uint256 yl, uint256 nl, bool res) =
             abi.decode(abi.encode(adapter.getQuote(marketId)), (bytes32, uint256, uint256, uint256, uint256, bool));
         q = MarketQuote(mid, yp, np, yl, nl, res);

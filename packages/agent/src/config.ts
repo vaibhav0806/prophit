@@ -40,10 +40,17 @@ export const config = {
   chainId: Number(process.env.CHAIN_ID || "31337"),
   port: Number(process.env.PORT ?? "3001"),
   apiKey: process.env.API_KEY ?? "",
-  polymarketAdapterAddress: (process.env.POLYMARKET_ADAPTER_ADDRESS || undefined) as `0x${string}` | undefined,
-  polymarketClobUrl: process.env.POLYMARKET_CLOB_URL || "https://clob.polymarket.com",
-  polymarketTokenMap: process.env.POLYMARKET_TOKEN_MAP
-    ? JSON.parse(process.env.POLYMARKET_TOKEN_MAP) as Record<string, { yesTokenId: string; noTokenId: string }>
+  opinionAdapterAddress: (process.env.OPINION_ADAPTER_ADDRESS || undefined) as `0x${string}` | undefined,
+  opinionApiBase: process.env.OPINION_API_BASE || "https://openapi.opinion.trade/openapi",
+  opinionApiKey: process.env.OPINION_API_KEY || "",
+  opinionTokenMap: process.env.OPINION_TOKEN_MAP
+    ? JSON.parse(process.env.OPINION_TOKEN_MAP) as Record<string, { yesTokenId: string; noTokenId: string; topicId: string }>
+    : undefined,
+  predictAdapterAddress: (process.env.PREDICT_ADAPTER_ADDRESS || undefined) as `0x${string}` | undefined,
+  predictApiBase: process.env.PREDICT_API_BASE || "https://api.predict.fun",
+  predictApiKey: process.env.PREDICT_API_KEY || "",
+  predictMarketMap: process.env.PREDICT_MARKET_MAP
+    ? JSON.parse(process.env.PREDICT_MARKET_MAP) as Record<string, { predictMarketId: string; yesTokenId: string; noTokenId: string }>
     : undefined,
 } as const;
 

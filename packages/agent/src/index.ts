@@ -22,6 +22,7 @@ import { scorePositions } from "./yield/scorer.js";
 import { allocateCapital } from "./yield/allocator.js";
 import { checkRotations } from "./yield/rotator.js";
 import type { YieldStatus } from "./yield/types.js";
+import { runDiscovery } from "./discovery/pipeline.js";
 
 const BSC_USDT = "0x55d398326f99059fF775485246999027B3197955" as `0x${string}`;
 
@@ -104,8 +105,9 @@ const walletClient = createWalletClient({
 
 // --- Providers ---
 const providers: MarketProvider[] = [];
+const DUMMY_ADAPTER = "0x0000000000000000000000000000000000000001" as `0x${string}`;
 
-if (config.chainId === 31337) {
+if (config.chainId === 31337 && config.adapterAAddress && config.adapterBAddress && config.marketId) {
   const providerA = new MockProvider(publicClient, config.adapterAAddress, "MockA", [config.marketId]);
   const providerB = new MockProvider(publicClient, config.adapterBAddress, "MockB", [config.marketId]);
   providers.push(providerA, providerB);
@@ -126,28 +128,56 @@ if (config.opinionAdapterAddress && config.opinionApiKey && config.opinionTokenM
   providers.push(opinionProvider);
 }
 
-if (config.predictAdapterAddress && config.predictApiKey && config.predictMarketMap) {
-  const marketMap = new Map(Object.entries(config.predictMarketMap));
+// Market maps — start from env, merge with auto-discovery if enabled
+let predictMarketMap = config.predictMarketMap ?? {} as Record<string, { predictMarketId: string; yesTokenId: string; noTokenId: string }>;
+let probableMarketMap = config.probableMarketMap ?? {} as Record<string, { probableMarketId: string; conditionId: string; yesTokenId: string; noTokenId: string }>;
+
+// Auto-discovery: fetch all markets from both platforms and match cross-protocol
+if (config.autoDiscover && config.predictApiKey) {
+  try {
+    log.info("Auto-discovery starting...");
+    const result = await runDiscovery({
+      probableEventsApiBase: config.probableEventsApiBase,
+      predictApiBase: config.predictApiBase,
+      predictApiKey: config.predictApiKey,
+    });
+    // Discovered maps as base, env maps override (env entries take precedence)
+    predictMarketMap = { ...result.predictMarketMap, ...predictMarketMap };
+    probableMarketMap = { ...result.probableMarketMap, ...probableMarketMap };
+    log.info("Auto-discovery complete", {
+      matches: result.matches.length,
+      probableMarkets: Object.keys(probableMarketMap).length,
+      predictMarkets: Object.keys(predictMarketMap).length,
+    });
+  } catch (err) {
+    log.error("Auto-discovery failed, using env maps only", { error: String(err) });
+  }
+}
+
+if (config.predictApiKey && Object.keys(predictMarketMap).length > 0) {
+  const marketMap = new Map(Object.entries(predictMarketMap));
   const predictProvider = new PredictProvider(
-    config.predictAdapterAddress,
+    config.predictAdapterAddress || DUMMY_ADAPTER,
     config.predictApiBase,
     config.predictApiKey,
-    Object.keys(config.predictMarketMap).map((k) => k as `0x${string}`),
+    Object.keys(predictMarketMap).map((k) => k as `0x${string}`),
     marketMap,
   );
   providers.push(predictProvider);
+  log.info("Predict provider enabled", { markets: Object.keys(predictMarketMap).length });
 }
 
-if (config.probableAdapterAddress && config.probableMarketMap) {
-  const marketMap = new Map(Object.entries(config.probableMarketMap));
+if (Object.keys(probableMarketMap).length > 0) {
+  const marketMap = new Map(Object.entries(probableMarketMap));
   const probableProvider = new ProbableProvider(
-    config.probableAdapterAddress,
+    config.probableAdapterAddress || DUMMY_ADAPTER,
     config.probableApiBase,
-    Object.keys(config.probableMarketMap).map((k) => k as `0x${string}`),
+    Object.keys(probableMarketMap).map((k) => k as `0x${string}`),
     marketMap,
     config.probableEventsApiBase,
   );
   providers.push(probableProvider);
+  log.info("Probable provider enabled", { markets: Object.keys(probableMarketMap).length });
 }
 
 if (config.chainId === 31337) {
@@ -257,7 +287,9 @@ if (matchingPipeline) {
 }
 
 // --- Execution ---
-const vaultClient = new VaultClient(walletClient, publicClient, config.vaultAddress);
+const vaultClient = config.executionMode === "vault" && config.vaultAddress
+  ? new VaultClient(walletClient, publicClient, config.vaultAddress)
+  : null;
 
 // Build meta resolvers map for CLOB mode
 const metaResolvers = new Map<string, { getMarketMeta: (id: `0x${string}`) => import("./types.js").MarketMeta | undefined }>();
@@ -268,7 +300,7 @@ for (const p of providers) {
 }
 
 const executor = new Executor(
-  vaultClient,
+  vaultClient ?? undefined,
   config,
   publicClient,
   { probable: probableClobClient, predict: predictClobClient },
@@ -369,7 +401,7 @@ async function scan(): Promise<void> {
           // BSC USDT is 18 decimals, dailyLossLimit is 6 decimals
           balanceForLossCheck = usdtBalance / BigInt(1e12);
         } catch { /* balance check may fail */ }
-      } else {
+      } else if (vaultClient) {
         try { balanceForLossCheck = await vaultClient.getVaultBalance(); } catch { /* vault may not be available */ }
       }
       const withinLossLimit = checkDailyLoss(balanceForLossCheck);
@@ -424,23 +456,24 @@ async function scan(): Promise<void> {
         log.info("No opportunities above threshold", { minSpreadBps });
       }
 
-      // Refresh positions
-      try {
-        positions = await vaultClient.getAllPositions();
-      } catch {
-        // Vault may not have positions yet
-      }
-
-      // Close resolved positions
-      try {
-        const closed = await executor.closeResolved(positions);
-        if (closed > 0) {
-          log.info("Closed resolved positions", { count: closed });
-          // Refresh positions after closing
+      // Refresh positions (vault mode only)
+      if (vaultClient) {
+        try {
           positions = await vaultClient.getAllPositions();
+        } catch {
+          // Vault may not have positions yet
         }
-      } catch (err) {
-        log.error("Error closing resolved positions", { error: String(err) });
+
+        // Close resolved positions
+        try {
+          const closed = await executor.closeResolved(positions);
+          if (closed > 0) {
+            log.info("Closed resolved positions", { count: closed });
+            positions = await vaultClient.getAllPositions();
+          }
+        } catch (err) {
+          log.error("Error closing resolved positions", { error: String(err) });
+        }
       }
 
       // Close resolved CLOB positions
@@ -462,10 +495,12 @@ async function scan(): Promise<void> {
           const scored = scorePositions(openPositions);
 
           let vaultBalance = 0n;
-          try {
-            vaultBalance = await vaultClient.getVaultBalance();
-          } catch {
-            // Vault may not be available
+          if (vaultClient) {
+            try {
+              vaultBalance = await vaultClient.getVaultBalance();
+            } catch {
+              // Vault may not be available
+            }
           }
 
           const allocationPlan = allocateCapital(vaultBalance, opportunities, maxPositionSize);
@@ -616,10 +651,8 @@ const app = createServer(
 serve({ fetch: app.fetch, port: config.port }, (info) => {
   log.info("Server running", {
     url: `http://localhost:${info.port}`,
-    vault: config.vaultAddress,
-    adapterA: config.adapterAAddress,
-    adapterB: config.adapterBAddress,
-    marketId: config.marketId,
+    executionMode: config.executionMode,
+    ...(config.vaultAddress ? { vault: config.vaultAddress } : {}),
     minSpreadBps,
     maxPositionSize: maxPositionSize.toString(),
     scanIntervalMs,

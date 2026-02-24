@@ -68,7 +68,7 @@ const erc20BalanceOfAbi = [
 
 const CTF_ADDRESSES: Record<string, `0x${string}`> = {
   probable: "0x364d05055614B506e2b9A287E4ac34167204cA83",
-  predict: "0xC5d01939Af7Ce9Ffc505F0bb36eFeDde7920f2dc",
+  predict: "0x22DA1810B194ca018378464a58f6Ac2B10C9d244",
 };
 
 interface ClobClients {
@@ -81,7 +81,7 @@ interface MarketMetaResolver {
 }
 
 export class Executor {
-  private vaultClient: VaultClient;
+  private vaultClient: VaultClient | null;
   private config: Config;
   private publicClient: PublicClient;
   private clobClients: ClobClients;
@@ -90,14 +90,14 @@ export class Executor {
   private paused = false;
 
   constructor(
-    vaultClient: VaultClient,
+    vaultClient: VaultClient | undefined,
     config: Config,
     publicClient: PublicClient,
     clobClients?: ClobClients,
     metaResolvers?: Map<string, MarketMetaResolver>,
     walletClient?: WalletClient,
   ) {
-    this.vaultClient = vaultClient;
+    this.vaultClient = vaultClient ?? null;
     this.config = config;
     this.publicClient = publicClient;
     this.clobClients = clobClients ?? {};
@@ -121,6 +121,10 @@ export class Executor {
     }
     if (this.config.executionMode === "clob") {
       return this.executeClob(opportunity, maxPositionSize);
+    }
+    if (!this.vaultClient) {
+      log.error("Vault mode requested but no vaultClient configured");
+      return;
     }
     return this.executeVault(opportunity, maxPositionSize);
   }
@@ -166,7 +170,7 @@ export class Executor {
     }
 
     // Check vault balance before trading
-    const vaultBalance = await this.vaultClient.getVaultBalance();
+    const vaultBalance = await this.vaultClient!.getVaultBalance();
     const totalNeeded = amountPerSide * 2n;
     if (vaultBalance < totalNeeded) {
       log.info("Insufficient vault balance", { vaultBalance: vaultBalance.toString(), totalNeeded: totalNeeded.toString() });
@@ -176,7 +180,7 @@ export class Executor {
     // Estimate gas cost for profitability check
     try {
       const gasPrice = await withRetry(
-        () => this.vaultClient.publicClient.getGasPrice(),
+        () => this.vaultClient!.publicClient.getGasPrice(),
         { label: "getGasPrice" },
       );
       // openPosition typically uses ~400k gas
@@ -213,11 +217,11 @@ export class Executor {
         : 0n;
 
     try {
-      const positionId = await this.vaultClient.openPosition({
-        adapterA: this.config.adapterAAddress,
-        adapterB: this.config.adapterBAddress,
-        marketIdA: this.config.marketId,
-        marketIdB: this.config.marketId,
+      const positionId = await this.vaultClient!.openPosition({
+        adapterA: this.config.adapterAAddress!,
+        adapterB: this.config.adapterBAddress!,
+        marketIdA: this.config.marketId!,
+        marketIdB: this.config.marketId!,
         buyYesOnA: opportunity.buyYesOnA,
         amountA: amountPerSide,
         amountB: amountPerSide,
@@ -280,7 +284,7 @@ export class Executor {
 
     // Pre-check USDT balance (EOA — covers Predict; Probable checks Safe-side via API)
     const account = this.walletClient?.account;
-    if (account) {
+    if (account && !this.config.dryRun) {
       try {
         const usdtBalance = await this.publicClient.readContract({
           address: BSC_USDT,
@@ -392,7 +396,17 @@ export class Executor {
       id: position.id,
       orderIdA: resultA.orderId,
       orderIdB: resultB.orderId,
+      dryRun: this.config.dryRun,
     });
+
+    // In dry-run mode, skip polling and mark as filled immediately
+    if (this.config.dryRun) {
+      position.status = "FILLED";
+      position.legA.filled = true;
+      position.legB.filled = true;
+      log.info("DRY RUN: position marked FILLED (no real orders placed)");
+      return position;
+    }
 
     return this.pollForFills(position);
   }
@@ -623,7 +637,7 @@ export class Executor {
 
         if (resolvedA && resolvedB) {
           log.info("Closing resolved position", { positionId: pos.positionId });
-          const payout = await this.vaultClient.closePosition(pos.positionId, 0n);
+          const payout = await this.vaultClient!.closePosition(pos.positionId, 0n);
           log.info("Position closed", {
             positionId: pos.positionId,
             payout: payout.toString(),

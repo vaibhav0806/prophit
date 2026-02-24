@@ -25,14 +25,17 @@ function requireHex(name: string): `0x${string}` {
   return value as `0x${string}`;
 }
 
+const executionMode = (process.env.EXECUTION_MODE || "vault") as "vault" | "clob";
+
 export const config = {
   rpcUrl: requireEnv("RPC_URL"),
   privateKey: requireHex("PRIVATE_KEY") as `0x${string}`,
-  vaultAddress: requireAddress("VAULT_ADDRESS"),
-  adapterAAddress: requireAddress("ADAPTER_A_ADDRESS"),
-  adapterBAddress: requireAddress("ADAPTER_B_ADDRESS"),
-  usdtAddress: requireAddress("USDT_ADDRESS"),
-  marketId: requireHex("MARKET_ID") as `0x${string}`,
+  // Vault-mode only — optional when EXECUTION_MODE=clob
+  vaultAddress: executionMode === "vault" ? requireAddress("VAULT_ADDRESS") : (process.env.VAULT_ADDRESS ?? undefined) as `0x${string}` | undefined,
+  adapterAAddress: executionMode === "vault" ? requireAddress("ADAPTER_A_ADDRESS") : (process.env.ADAPTER_A_ADDRESS ?? undefined) as `0x${string}` | undefined,
+  adapterBAddress: executionMode === "vault" ? requireAddress("ADAPTER_B_ADDRESS") : (process.env.ADAPTER_B_ADDRESS ?? undefined) as `0x${string}` | undefined,
+  usdtAddress: executionMode === "vault" ? requireAddress("USDT_ADDRESS") : (process.env.USDT_ADDRESS ?? "0x55d398326f99059fF775485246999027B3197955") as `0x${string}`,
+  marketId: executionMode === "vault" ? requireHex("MARKET_ID") as `0x${string}` : (process.env.MARKET_ID ?? undefined) as `0x${string}` | undefined,
   minSpreadBps: Number(process.env.MIN_SPREAD_BPS ?? "100"),
   maxPositionSize: BigInt(process.env.MAX_POSITION_SIZE ?? "500000000"),
   scanIntervalMs: Number(process.env.SCAN_INTERVAL_MS ?? "5000"),

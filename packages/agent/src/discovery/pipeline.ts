@@ -18,7 +18,7 @@ export interface DiscoveredMarket {
 export interface MarketMatch {
   probable: DiscoveredMarket;
   predict: DiscoveredMarket;
-  matchType: "conditionId" | "titleSimilarity";
+  matchType: "conditionId" | "templateMatch" | "titleSimilarity";
   similarity: number;
   probableMapEntry: { probableMarketId: string; conditionId: string; yesTokenId: string; noTokenId: string };
   predictMapEntry: { predictMarketId: string; yesTokenId: string; noTokenId: string };
@@ -28,6 +28,8 @@ export interface DiscoveryResult {
   discoveredAt: string;
   probableMarkets: number;
   predictMarkets: number;
+  probableMarketsList: DiscoveredMarket[];
+  predictMarketsList: DiscoveredMarket[];
   matches: MarketMatch[];
   probableMarketMap: Record<string, { probableMarketId: string; conditionId: string; yesTokenId: string; noTokenId: string }>;
   predictMarketMap: Record<string, { predictMarketId: string; yesTokenId: string; noTokenId: string }>;
@@ -42,7 +44,7 @@ interface ProbableEvent {
   title: string;
   slug: string;
   active: boolean;
-  tags: string[];
+  tags: Array<{ id: number; label: string; slug: string }>;
   markets: ProbableMarketRaw[];
 }
 
@@ -116,12 +118,18 @@ function normalizeTitle(title: string): string {
     .trim();
 }
 
+const STOP_WORDS = new Set([
+  "will", "the", "a", "an", "by", "be", "of", "in", "to",
+  "and", "or", "is", "it", "at", "on", "for", "has", "have",
+]);
+
 /**
  * Jaccard similarity over word sets.  intersection / union of unique words.
+ * Stop words are filtered out so template-heavy titles don't inflate scores.
  */
 function jaccardSimilarity(a: string, b: string): number {
-  const wordsA = new Set(normalizeTitle(a).split(" ").filter(Boolean));
-  const wordsB = new Set(normalizeTitle(b).split(" ").filter(Boolean));
+  const wordsA = new Set(normalizeTitle(a).split(" ").filter((w) => w && !STOP_WORDS.has(w)));
+  const wordsB = new Set(normalizeTitle(b).split(" ").filter((w) => w && !STOP_WORDS.has(w)));
 
   if (wordsA.size === 0 && wordsB.size === 0) return 1;
   if (wordsA.size === 0 || wordsB.size === 0) return 0;
@@ -135,7 +143,50 @@ function jaccardSimilarity(a: string, b: string): number {
   return union === 0 ? 0 : intersection / union;
 }
 
-const SIMILARITY_THRESHOLD = 0.75;
+const SIMILARITY_THRESHOLD = 0.85;
+
+// ---------------------------------------------------------------------------
+// Template extraction — identifies structured market titles and extracts the
+// distinguishing entity/params so template-heavy titles don't false-positive
+// on Jaccard similarity.
+// ---------------------------------------------------------------------------
+
+interface TemplateResult {
+  template: string;
+  entity: string;
+  params: string;
+}
+
+const TEMPLATE_PATTERNS: { name: string; regex: RegExp }[] = [
+  { name: "fdv-above",    regex: /will (.+?) fdv be above \$?([\d.]+[bmk]?)/i },
+  { name: "token-launch", regex: /will (.+?) launch a token by (.+)/i },
+  { name: "price-target", regex: /will (.+?) (?:hit|reach|break) \$?([\d,.]+)/i },
+  { name: "win-comp",     regex: /will (.+?) win (.+)/i },
+  { name: "out-as",       regex: /will (.+?) come out as (.+)/i },
+  { name: "ipo-by",       regex: /will (.+?) ipo by (.+)/i },
+];
+
+function normalizeEntity(s: string): string {
+  return s.toLowerCase().trim().replace(/[?.,!]+$/, "");
+}
+
+function normalizeParams(s: string): string {
+  return s.toLowerCase().replace(/[$?]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function extractTemplate(title: string): TemplateResult | null {
+  for (const { name, regex } of TEMPLATE_PATTERNS) {
+    const m = title.match(regex);
+    if (m) {
+      return {
+        template: name,
+        entity: normalizeEntity(m[1]),
+        params: normalizeParams(m[2]),
+      };
+    }
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Fetch Probable events (paginated, reuses discoverEvents() pattern)
@@ -221,7 +272,7 @@ async function fetchProbableMarkets(
         conditionId,
         yesTokenId,
         noTokenId,
-        category: event.tags?.[0],
+        category: event.tags?.[0]?.label,
         hasLiquidity: true, // Will be refined below if we add orderbook checks
       });
     }
@@ -350,6 +401,7 @@ function matchMarkets(
   predict: DiscoveredMarket[],
 ): MarketMatch[] {
   const matches: MarketMatch[] = [];
+  const matchedProbableIds = new Set<string>();
   const matchedPredictIds = new Set<string>();
 
   // Pass 1: exact conditionId match
@@ -363,17 +415,41 @@ function matchMarkets(
     const pred = predictByCondition.get(prob.conditionId);
     if (!pred) continue;
 
+    matchedProbableIds.add(prob.id);
     matchedPredictIds.add(pred.id);
     matches.push(buildMatch(prob, pred, "conditionId", 1.0));
   }
 
-  // Pass 2: title similarity for unmatched markets
+  // Pass 2: template extraction + entity match
+  const templateKeyToPredict = new Map<string, DiscoveredMarket>();
+  for (const pred of predict) {
+    if (matchedPredictIds.has(pred.id)) continue;
+    const tpl = extractTemplate(pred.title);
+    if (!tpl) continue;
+    const key = `${tpl.template}:${tpl.entity}:${tpl.params}`;
+    templateKeyToPredict.set(key, pred);
+  }
+
+  for (const prob of probable) {
+    if (matchedProbableIds.has(prob.id)) continue;
+    const tpl = extractTemplate(prob.title);
+    if (!tpl) continue;
+    const key = `${tpl.template}:${tpl.entity}:${tpl.params}`;
+    const pred = templateKeyToPredict.get(key);
+    if (!pred) continue;
+
+    matchedProbableIds.add(prob.id);
+    matchedPredictIds.add(pred.id);
+    matches.push(buildMatch(prob, pred, "templateMatch", 1.0));
+    log.info("Discovery: template match", { template: tpl.template, entity: tpl.entity });
+  }
+
+  // Pass 3: Jaccard title similarity fallback for remaining unmatched markets
   const unmatchedPredict = predict.filter((p) => !matchedPredictIds.has(p.id));
   let nearMisses = 0;
 
   for (const prob of probable) {
-    // Skip if this Probable market already has a conditionId match
-    if (matches.some((m) => m.probable.id === prob.id)) continue;
+    if (matchedProbableIds.has(prob.id)) continue;
 
     let bestMatch: DiscoveredMarket | null = null;
     let bestSimilarity = 0;
@@ -389,6 +465,7 @@ function matchMarkets(
     }
 
     if (bestMatch && bestSimilarity >= SIMILARITY_THRESHOLD) {
+      matchedProbableIds.add(prob.id);
       matchedPredictIds.add(bestMatch.id);
       matches.push(buildMatch(prob, bestMatch, "titleSimilarity", bestSimilarity));
     } else if (bestMatch && bestSimilarity >= 0.50) {
@@ -402,7 +479,7 @@ function matchMarkets(
   }
 
   if (nearMisses > 0) {
-    log.info("Discovery: title near-misses (0.50-0.75)", { count: nearMisses });
+    log.info("Discovery: title near-misses (0.50-0.85)", { count: nearMisses });
   }
 
   return matches;
@@ -411,7 +488,7 @@ function matchMarkets(
 function buildMatch(
   probable: DiscoveredMarket,
   predict: DiscoveredMarket,
-  matchType: "conditionId" | "titleSimilarity",
+  matchType: "conditionId" | "templateMatch" | "titleSimilarity",
   similarity: number,
 ): MarketMatch {
   return {
@@ -506,6 +583,8 @@ export async function runDiscovery(params: {
     discoveredAt: new Date().toISOString(),
     probableMarkets: probableMarkets.length,
     predictMarkets: predictMarkets.length,
+    probableMarketsList: probableMarkets,
+    predictMarketsList: predictMarkets,
     matches,
     probableMarketMap,
     predictMarketMap,

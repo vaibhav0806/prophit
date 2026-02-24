@@ -66,7 +66,7 @@ const ERC20_APPROVE_ABI = [
 ] as const;
 
 // Well-known BSC addresses for Predict.fun
-const PREDICT_CTF_ADDRESS = "0xC5d01939Af7Ce9Ffc505F0bb36eFeDde7920f2dc" as `0x${string}`;
+const PREDICT_CTF_ADDRESS = "0x22DA1810B194ca018378464a58f6Ac2B10C9d244" as `0x${string}`;
 const BSC_USDT_ADDRESS = "0x55d398326f99059fF775485246999027B3197955" as `0x${string}`;
 
 // Predict.fun EIP-712 domain name (different from Polymarket/Probable "ClobExchange")

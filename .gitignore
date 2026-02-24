@@ -12,6 +12,9 @@ broadcast/
 # Ephemeral market data
 packages/agent/data/
 
+# Agent runtime state
+agent-state.json
+
 # npm lockfiles (project uses pnpm)
 package-lock.json
 

@@ -30,11 +30,11 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Opi
 | **State persistence** | Done | JSON file, auto-restore on restart |
 | **Market discovery scripts** | Done | `discover-markets.ts`, `match-markets.ts` for Predict.fun |
 | **CLOB types + EIP-712 signing** | Done | Shared `ClobOrder` struct, `signOrder()`, `signClobAuth()` via viem `signTypedData` |
-| **Probable CLOB client** | Done | EIP-712 signed orders, Prob_* L2 HMAC auth, order/cancel/approvals, API key derivation |
+| **Probable CLOB client** | Done | EIP-712 signed orders, Prob_* L2 HMAC auth, order/cancel/approvals, API key derivation, Safe proxy wallet support (execTransaction) |
 | **Predict.fun CLOB client** | Done | JWT auth flow, EIP-712 signed orders, 401 re-auth, order/cancel/approvals |
 | **Fill polling** | Done | `pollForFills()` — polls both legs every 5s for 60s, handles FILLED/PARTIAL/EXPIRED, cancels unfilled on timeout |
 | **CLOB position redemption** | Done | `closeResolvedClob()` — checks CTF `payoutDenominator`, calls `redeemPositions`, updates status to CLOSED |
-| **Signing validation script** | Done | `validate-signing.ts` — CLI for testing EIP-712 signing against real APIs (blocked on funded BSC wallet) |
+| **Signing validation script** | Done | `validate-signing.ts` — CLI for testing EIP-712 signing against real APIs (validated against both Probable + Predict.fun) |
 | **CLOB execution mode** | Done | `EXECUTION_MODE=clob` bypasses vault, EOA signs+places limit orders directly on CLOBs |
 | **Auto-discovery pipeline** | Done | Fetch all markets from both platforms, match by conditionId + title similarity, output market maps |
 | **Auto-discover CLI** | Done | `npx tsx src/scripts/auto-discover.ts [--dry-run] [--save]` |
@@ -53,9 +53,10 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Opi
 | **Proxy/upgradeable contracts** | Not started | Decision needed |
 | **CLOB client integration tests** | Not started | Need mocked fetch or testnet; unit tests pass but no HTTP-level tests for probable-client/predict-client |
 | **Predict.fun signing validation** | Done | EIP-712 signing verified against live API — domain, exchange, scale, fees all correct |
-| **Probable signing validation** | Blocked | Requires proxy wallet (on-chain registration via probable.markets frontend) before orders accepted |
+| **Probable signing validation** | Done | EIP-712 + HMAC L2 signing verified against live API — order placed (ID 24422), cancelled. Safe proxy wallet (`0x0EA05eB5`), domain "Probable CTF Exchange", scale 1e18, feeRateBps 175 min |
 | **Probable `authenticate()` call** | Fixed | Added to `index.ts` IIFE |
 | **CLOB daily loss reads BNB not USDT** | Fixed | Replaced with ERC-20 balanceOf |
+| **Safe proxy wallet flow** | Done | `execSafeTransaction()` — EIP-712 SafeTx signing, CTF + USDT approvals via Safe, receipt-based nonce management |
 | **Nonce reset on restart** | Not started | Nonce starts at 0n on each restart, server may reject duplicate nonce |
 | **USDT balance pre-check** | Not started | No check that wallet has enough USDT before placing orders |
 | **Graceful shutdown** | Not started | No await for in-flight scans or state flush on SIGTERM |
@@ -149,18 +150,18 @@ All original P0 issues from the initial audit have been fixed:
 | 7 | Contracts | **`DeployProduction.s.sol` incomplete** | Script exists but doesn't deploy adapters, register markets, or set approvals. No BSC fork config in `foundry.toml` | Complete deploy script with full adapter deploy + market registration + approval grants. Add `[profile.bsc]` to foundry.toml | 4-8 hrs |
 | 8 | Contracts | **No market registration flow** | Adapters have `setQuote()` per marketId but no script/function to register all 19+ wired markets on-chain | Add batch `registerMarket` script that sets initial quotes for all configured markets | 2-4 hrs |
 
-#### Tier 2 — High Risk (should fix before scaling beyond $100)
+#### Tier 2 — High Risk — All Agent Items Fixed ✓
 
-| # | Area | Issue | Detail | Fix | Effort |
-|---|------|-------|--------|-----|--------|
-| 1 | Agent | **Partial fill — no remediation** | If leg A fills and leg B doesn't, `pollForFills` logs CRITICAL but takes no action. Agent has naked directional exposure | Auto-cancel unfilled leg, or market-sell filled leg to unwind. At minimum, pause agent | 2-4 hrs |
-| 2 | Agent | **Nonce reset on restart** | `ProbableClobClient.nonce` starts at `0n` on each restart. Server may reject if nonce already used | Fetch nonce from server on startup (requires Probable API endpoint), or persist last nonce to state file | 1-2 hrs |
-| 3 | Agent | **No USDT balance pre-check** | Orders placed without verifying wallet has enough USDT. Will fail on-chain with obscure revert | Read USDT balance before order, skip if insufficient | 30 min |
-| 4 | Agent | **Graceful shutdown missing** | `SIGTERM` kills process mid-scan. In-flight orders may not be cancelled, state may not flush | Add signal handler: cancel pending orders, flush state, close HTTP server | 2-4 hrs |
-| 5 | Agent | **Float precision in order amounts** | `Math.floor(size * 1_000_000)` can produce off-by-one with IEEE 754 floats | Use integer arithmetic or `BigInt` math throughout. Or multiply-then-truncate with rounding check | 1-2 hrs |
-| 6 | Agent | **JWT expiry race (Predict.fun)** | JWT token cached with no TTL tracking. If token expires between check and use, 401 → re-auth → retry. But concurrent requests can cause double re-auth | Add mutex around JWT refresh, track expiry timestamp | 1-2 hrs |
-| 7 | Contracts | **`setCircuitBreakers` has no timelock** | Owner can disable all safety limits (daily loss, cooldown, position cap) in a single tx | Add timelock or require multi-sig for circuit breaker changes | 2-4 hrs |
-| 8 | Infra | **npm audit vulnerabilities** | Multiple packages have known vulnerabilities. `npm audit` shows issues in both agent and frontend | Run `npm audit fix`, upgrade vulnerable deps, document accepted risks | 1-2 hrs |
+| # | Area | Issue | Status | Commit |
+|---|------|-------|--------|--------|
+| 1 | Agent | **Partial fill — no remediation** | Fixed | `3fea99a` — Executor auto-pauses on PARTIAL, `isPaused()`/`unpause()` for operator control |
+| 2 | Agent | **Nonce reset on restart** | Fixed | `3fea99a` — Nonces persisted to state file via `getNonce()`/`setNonce()`, restored on startup |
+| 3 | Agent | **No USDT balance pre-check** | Fixed | `3444ba4` — EOA USDT balance checked before placing CLOB orders |
+| 4 | Agent | **Graceful shutdown missing** | Fixed | `3fea99a` — SIGTERM/SIGINT handler cancels open orders, flushes state, exits cleanly |
+| 5 | Agent | **Float precision in order amounts** | Fixed | `3fea99a` — Two-step scaling (float*1e8 then BigInt/100_000_000n) avoids IEEE 754 loss |
+| 6 | Agent | **JWT expiry race (Predict.fun)** | Fixed | `3fea99a` — Promise-based mutex on `ensureAuth()`, JWT expiry tracking with 30s buffer |
+| 7 | Contracts | **`setCircuitBreakers` has no timelock** | Not started | Add timelock or require multi-sig for circuit breaker changes |
+| 8 | Infra | **npm audit vulnerabilities** | Not started | Run `npm audit fix`, upgrade vulnerable deps |
 
 #### Tier 3 — Medium Priority (fix before production scale)
 
@@ -225,22 +226,37 @@ All original P0 issues from the initial audit have been fixed:
 - [x] Fill polling (`pollForFills`) — polls both legs every 5s for 60s, handles FILLED/PARTIAL/EXPIRED states
 - [x] CLOB position redemption (`closeResolvedClob`) — checks CTF `payoutDenominator`, calls `redeemPositions`
 - [x] Signing validation script (`validate-signing.ts`) — CLI for testing against real APIs
-- [ ] **Remaining:** CLOB client integration tests (mocked fetch), signing validation against real APIs (blocked on funded wallet)
+- [x] Signing validation against real APIs — both Probable + Predict.fun orders placed + cancelled on live BSC mainnet
+- [ ] **Remaining:** CLOB client integration tests (mocked fetch)
 
-### Phase 2.5: Tier 1 Blocker Fixes (current)
-- [ ] Add `probableClobClient.authenticate()` to `index.ts` IIFE (Tier 1 #1)
-- [ ] Fix CLOB daily loss to read USDT balance, not BNB (Tier 1 #2)
-- [ ] Validate EIP-712 signing against live Probable + Predict.fun APIs (Tier 1 #3 — needs funded wallet)
-- [ ] Set `CHAIN_ID=56` + real BSC RPC, hard-block mocks on mainnet (Tier 1 #4)
-- [ ] Require non-empty `API_KEY` on startup (Tier 1 #5)
-- [ ] Await CLOB init before starting scan loop (Tier 1 #6)
+### Phase 2.5: Tier 1 Blocker Fixes — DONE ✓ (except contracts)
+- [x] Add `probableClobClient.authenticate()` to `index.ts` IIFE (Tier 1 #1) — `f2253c7`
+- [x] Fix CLOB daily loss to read USDT balance, not BNB (Tier 1 #2) — `f2253c7`
+- [x] Validate EIP-712 signing against live Probable + Predict.fun APIs (Tier 1 #3) — both platforms validated, orders placed + cancelled
+- [x] Set `CHAIN_ID=56` + real BSC RPC, hard-block mocks on mainnet (Tier 1 #4) — `f2253c7`
+- [x] Require non-empty `API_KEY` on startup (Tier 1 #5) — `f2253c7`
+- [x] Await CLOB init before starting scan loop (Tier 1 #6) — `f2253c7`
 - [ ] Complete `DeployProduction.s.sol` + BSC foundry config (Tier 1 #7)
 - [ ] Market registration script for on-chain adapters (Tier 1 #8)
 
+### Phase 2.6: Probable Live Validation — DONE ✓
+- [x] Crack HMAC L2 signing — server re-serializes body with schema-defined key order (deferExec, order{salt,maker,...,signature}, owner, orderType)
+- [x] Fix Probable exchange address: `0xf99f5367ce708c66f0860b77b4331301a5597c86` (was wrong)
+- [x] Fix EIP-712 domain name: "Probable CTF Exchange" (not "ClobExchange")
+- [x] Fix amount scaling: 1e18 (not Polymarket's 1e6)
+- [x] Fix minimum feeRateBps: 175 (1.75%)
+- [x] Deploy Safe proxy wallet for EOA (`0x0EA05eB5f9221EEd7E675FceF49c93C5fa1D9406`)
+- [x] Implement Safe `execTransaction` flow — EIP-712 SafeTx signing, receipt-based nonce management
+- [x] Route CTF + USDT approvals through Safe when `PROBABLE_PROXY_ADDRESS` is set
+- [x] Place order on live API — Order #24422, status NEW, symbol NBASASDE1642YESUSDT
+- [x] Fix `cancelOrder` — DELETE `/order/{chainId}/{orderId}?tokenId={tokenId}` (required query param)
+- [x] Cancel lingering orders — both 24421 + 24422 cancelled successfully
+
 ### Phase 3: BSC Mainnet Validation
-- [ ] Fund EOA wallet with BNB (gas) + USDT (trading capital)
-- [ ] Run `validate-signing.ts --platform both --cancel` — confirm orders accepted + cancelled
-- [ ] Run `ensureApprovals()` — set CTF + USDT approvals for both exchanges
+- [x] Fund EOA wallet with BNB (gas) + USDT (trading capital) — EOA funded, 2 USDT transferred to Safe
+- [x] Run `validate-signing.ts --platform probable --cancel` — order placed + cancelled on Probable
+- [x] Run `validate-signing.ts --platform predict --cancel` — order placed + cancelled on Predict.fun
+- [x] Run `ensureApprovals()` — CTF + USDT approvals set for Probable exchange (via Safe)
 - [ ] Deploy vault + all 3 adapters to BSC mainnet
 - [ ] Register all 19+ wired markets on adapters
 - [ ] Run agent in `DRY_RUN=true` mode for 24h against live APIs
@@ -249,7 +265,7 @@ All original P0 issues from the initial audit have been fixed:
 - [ ] Monitor for 48h: position lifecycle, fill rates, PnL tracking
 
 ### Phase 4: Security Hardening
-- [ ] Fix Tier 2 blockers (partial fill remediation, graceful shutdown, nonce persistence, USDT balance check)
+- [x] Fix Tier 2 agent blockers — partial fill pause, graceful shutdown, nonce persistence, USDT balance check, float precision, JWT mutex — `3444ba4`, `3fea99a`
 - [ ] Deploy with multi-sig owner (Gnosis Safe)
 - [ ] Add timelock for `setCircuitBreakers`
 - [ ] Fix Tier 3 items (health endpoint, gas estimation, rate limiting, etc.)
@@ -352,7 +368,7 @@ Pages
 | Protocol | API | Auth | Chain | Fees | Oracle | Pagination |
 |----------|-----|------|-------|------|--------|------------|
 | **Predict.fun** | `api.predict.fun` (REST) | `x-api-key` + JWT bearer | BSC (56) | 200 bps | Custom | Cursor-based, 445 markets |
-| **Probable** | Orderbooks: `api.probable.markets`, Events: `market-api.probable.markets` | None (public) | BSC (56) | 0 bps | UMA Optimistic Oracle | Offset-based, limit=100 max, 135 events/468 markets |
+| **Probable** | Orderbooks: `api.probable.markets`, Events: `market-api.probable.markets` | Public (read), Prob_* HMAC L2 (write) | BSC (56) | 175 bps min | UMA Optimistic Oracle | Offset-based, limit=100 max, 135 events/468 markets |
 | **Opinion** | `openapi.opinion.trade/openapi` | `apikey` header | BSC (56) | ~1-3% dynamic | Opinion AI | Unknown (blocked on API key) |
 
 All three use **Gnosis Conditional Token Framework (CTF)** — ERC1155 outcome tokens on BSC.
@@ -362,7 +378,7 @@ All three use **Gnosis Conditional Token Framework (CTF)** — ERC1155 outcome t
 | Contract | Probable | Predict.fun | Opinion |
 |----------|----------|-------------|---------|
 | CTF Token | `0x364d05055614B506e2b9A287E4ac34167204cA83` | `0xC5d01939Af7Ce9Ffc505F0bb36eFeDde7920f2dc` | `0xAD1a38cEc043e70E83a3eC30443dB285ED10D774` |
-| CTF Exchange | `0x616C31a93769e32781409518FA2A57f3857cDD24` | `0x8BC070BEdAB741406F4B1Eb65A72bee27894B689` | TBD |
+| CTF Exchange | `0xf99f5367ce708c66f0860b77b4331301a5597c86` | `0x8BC070BEdAB741406F4B1Eb65A72bee27894B689` | TBD |
 | USDT | `0x55d398326f99059fF775485246999027B3197955` | same | same |
 
 ---
@@ -401,7 +417,7 @@ If spread_bps > min_threshold:
 
 ```
 Predict.fun: 200 bps on profit of winning leg (worst-case deducted in detector)
-Probable:    0 bps
+Probable:    175 bps minimum (1.75%)
 Opinion:     200 bps (estimated, pending API key confirmation)
 
 Detector computes worst-case fee per strategy:
@@ -447,7 +463,7 @@ prophit/
         yield/{scorer,allocator,rotator,types}.ts
         discovery/pipeline.ts
         api/server.ts
-        scripts/{discover-markets,match-markets,auto-discover,validate-signing}.ts
+        scripts/{discover-markets,match-markets,auto-discover,validate-signing,probe-probable}.ts
     frontend/               # Next.js 14
       src/app/{scanner,positions,agent,unifier,yield,audit}/page.tsx
       src/components/{scanner,positions,agent,unifier,yield,audit,sidebar}.tsx

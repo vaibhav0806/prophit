@@ -82,12 +82,18 @@ interface PredictMarketsListResponse {
   cursor?: string;
 }
 
-interface PredictOrderbookResponse {
+interface PredictCategoryRaw {
+  id: number;
+  slug: string;
+  title: string;
+  status: string;
+  markets: PredictMarketRaw[];
+}
+
+interface PredictCategoriesListResponse {
   success: boolean;
-  data: {
-    asks: Array<[number, number]>;
-    bids: Array<[number, number]>;
-  };
+  data: PredictCategoryRaw[];
+  cursor?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +135,7 @@ function jaccardSimilarity(a: string, b: string): number {
   return union === 0 ? 0 : intersection / union;
 }
 
-const SIMILARITY_THRESHOLD = 0.85;
+const SIMILARITY_THRESHOLD = 0.75;
 
 // ---------------------------------------------------------------------------
 // Fetch Probable events (paginated, reuses discoverEvents() pattern)
@@ -238,7 +244,7 @@ async function fetchPredictMarkets(
 
   for (let page = 0; page < MAX_PAGES; page++) {
     let path = `/v1/markets?status=OPEN&first=50`;
-    if (cursor) path += `&cursor=${encodeURIComponent(cursor)}`;
+    if (cursor) path += `&after=${encodeURIComponent(cursor)}`;
 
     let resp: PredictMarketsListResponse;
     try {
@@ -273,7 +279,45 @@ async function fetchPredictMarkets(
     await sleep(150); // rate limit
   }
 
-  // Check orderbook liquidity for each market (quick probe)
+  // Also fetch from /v1/categories — many markets (especially multi-outcome
+  // events) only appear here, not in /v1/markets.
+  // Cap at 30 pages (~1500 categories) to keep startup under 30s.
+  const CAT_PAGE_CAP = 30;
+  let catCursor: string | undefined;
+  for (let page = 0; page < CAT_PAGE_CAP; page++) {
+    let path = `/v1/categories?first=50`;
+    if (catCursor) path += `&after=${encodeURIComponent(catCursor)}`;
+
+    try {
+      const url = `${apiBase}${path}`;
+      const res = await fetch(url, {
+        headers: { "x-api-key": apiKey },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) break;
+      const resp = (await res.json()) as PredictCategoriesListResponse;
+      if (!resp.success || !Array.isArray(resp.data)) break;
+
+      for (const cat of resp.data) {
+        if (!cat.markets) continue;
+        for (const m of cat.markets) {
+          if (!seen.has(m.id)) seen.set(m.id, m);
+        }
+      }
+
+      log.info("Predict: fetched categories page", { page: page + 1, unique: seen.size });
+
+      if (!resp.cursor || resp.data.length < 50) break;
+      catCursor = resp.cursor;
+      await sleep(150);
+    } catch (err) {
+      log.error("Predict categories fetch failed", { page, error: String(err) });
+      break;
+    }
+  }
+
+  // Build discovered list (skip per-market orderbook check — too slow for
+  // thousands of markets and the scan loop filters by liquidity in real-time)
   const discovered: DiscoveredMarket[] = [];
 
   for (const m of seen.values()) {
@@ -282,34 +326,15 @@ async function fetchPredictMarkets(
     const no = m.outcomes.find((o) => o.indexSet === 2);
     if (!yes || !no) continue;
 
-    // Quick liquidity check via orderbook
-    let hasLiquidity = false;
-    try {
-      const obUrl = `${apiBase}/v1/markets/${m.id}/orderbook`;
-      const obRes = await fetch(obUrl, {
-        headers: { "x-api-key": apiKey },
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (obRes.ok) {
-        const ob = (await obRes.json()) as PredictOrderbookResponse;
-        if (ob.success && ob.data) {
-          hasLiquidity = ob.data.asks.length > 0 && ob.data.bids.length > 0;
-        }
-      }
-      await sleep(150); // rate limit
-    } catch {
-      // orderbook check is best-effort
-    }
-
     discovered.push({
       platform: "Predict",
       id: String(m.id),
-      title: m.title || m.question,
+      title: m.question || m.title, // prefer full question over short option name
       conditionId: m.conditionId,
       yesTokenId: yes.onChainId,
       noTokenId: no.onChainId,
       category: m.categorySlug,
-      hasLiquidity,
+      hasLiquidity: true, // checked at scan time, not discovery time
     });
   }
 
@@ -344,6 +369,7 @@ function matchMarkets(
 
   // Pass 2: title similarity for unmatched markets
   const unmatchedPredict = predict.filter((p) => !matchedPredictIds.has(p.id));
+  let nearMisses = 0;
 
   for (const prob of probable) {
     // Skip if this Probable market already has a conditionId match
@@ -365,7 +391,18 @@ function matchMarkets(
     if (bestMatch && bestSimilarity >= SIMILARITY_THRESHOLD) {
       matchedPredictIds.add(bestMatch.id);
       matches.push(buildMatch(prob, bestMatch, "titleSimilarity", bestSimilarity));
+    } else if (bestMatch && bestSimilarity >= 0.50) {
+      nearMisses++;
+      log.info("Discovery near-miss", {
+        similarity: Math.round(bestSimilarity * 100) / 100,
+        probable: prob.title.slice(0, 80),
+        predict: bestMatch.title.slice(0, 80),
+      });
     }
+  }
+
+  if (nearMisses > 0) {
+    log.info("Discovery: title near-misses (0.50-0.75)", { count: nearMisses });
   }
 
   return matches;
@@ -405,8 +442,8 @@ function validateMatch(match: MarketMatch): boolean {
   if (!match.probable.yesTokenId || !match.probable.noTokenId) return false;
   if (!match.predict.yesTokenId || !match.predict.noTokenId) return false;
 
-  // Both should have orderbook liquidity
-  if (!match.probable.hasLiquidity || !match.predict.hasLiquidity) return false;
+  // Liquidity is checked at scan time, not discovery time — the scan loop
+  // gracefully handles empty orderbooks by skipping zero-price quotes.
 
   return true;
 }

@@ -149,6 +149,32 @@ if (config.chainId === 31337) {
   log.warn("Running on local devnet (chainId 31337). Set CHAIN_ID for production.");
 }
 
+// --- Agent state (loaded early so CLOB init can reference persisted nonces) ---
+let running = false;
+let lastScan = 0;
+let tradesExecuted = 0;
+let opportunities: ArbitOpportunity[] = [];
+let positions: Position[] = [];
+let clobPositions: ClobPosition[] = [];
+let scanTimer: ReturnType<typeof setTimeout> | null = null;
+let yieldStatus: YieldStatus | null = null;
+const startedAt = Date.now();
+
+// Load persisted state
+const persisted = loadState();
+if (persisted) {
+  tradesExecuted = persisted.tradesExecuted;
+  positions = persisted.positions;
+  clobPositions = persisted.clobPositions ?? [];
+  lastScan = persisted.lastScan;
+  log.info("Restored persisted state", {
+    tradesExecuted,
+    positions: positions.length,
+    clobPositions: clobPositions.length,
+    lastScan,
+  });
+}
+
 // --- CLOB clients (when executionMode=clob) ---
 let probableClobClient: ProbableClobClient | undefined;
 let predictClobClient: PredictClobClient | undefined;
@@ -186,6 +212,17 @@ if (config.executionMode === "clob") {
       if (predictClobClient) {
         await predictClobClient.authenticate();
         await predictClobClient.fetchNonce();
+      }
+      // Restore persisted nonces (must happen after auth/fetchNonce)
+      if (persisted?.clobNonces) {
+        if (persisted.clobNonces.Probable) {
+          probableClobClient!.setNonce(BigInt(persisted.clobNonces.Probable));
+          log.info("Restored Probable nonce", { nonce: persisted.clobNonces.Probable });
+        }
+        if (predictClobClient && persisted.clobNonces.Predict) {
+          predictClobClient.setNonce(BigInt(persisted.clobNonces.Predict));
+          log.info("Restored Predict nonce", { nonce: persisted.clobNonces.Predict });
+        }
       }
       // Check approvals
       await probableClobClient!.ensureApprovals(publicClient);
@@ -234,41 +271,28 @@ const executor = new Executor(
   walletClient,
 );
 
-// --- Agent state ---
-let running = false;
-let lastScan = 0;
-let tradesExecuted = 0;
-let opportunities: ArbitOpportunity[] = [];
-let positions: Position[] = [];
-let clobPositions: ClobPosition[] = [];
-let scanTimer: ReturnType<typeof setTimeout> | null = null;
-let yieldStatus: YieldStatus | null = null;
-const startedAt = Date.now();
-
-// Load persisted state
-const persisted = loadState();
-if (persisted) {
-  tradesExecuted = persisted.tradesExecuted;
-  positions = persisted.positions;
-  clobPositions = persisted.clobPositions ?? [];
-  lastScan = persisted.lastScan;
-  log.info("Restored persisted state", {
-    tradesExecuted,
-    positions: positions.length,
-    clobPositions: clobPositions.length,
-    lastScan,
-  });
-}
+// --- Graceful shutdown flag ---
+let shuttingDown = false;
 
 // Mutable config
 let minSpreadBps = config.minSpreadBps;
 let maxPositionSize = config.maxPositionSize;
 let scanIntervalMs = config.scanIntervalMs;
 
+// --- CLOB nonce collection for persistence ---
+function collectClobNonces(): Record<string, string> | undefined {
+  if (!probableClobClient && !predictClobClient) return undefined;
+  const nonces: Record<string, string> = {};
+  if (probableClobClient) nonces.Probable = probableClobClient.getNonce().toString();
+  if (predictClobClient) nonces.Predict = predictClobClient.getNonce().toString();
+  return nonces;
+}
+
 // --- Scan loop ---
 let scanning = false;
 
 async function scan(): Promise<void> {
+  if (shuttingDown) return;
   if (!running) return;
   if (scanning) return;
   scanning = true;
@@ -482,7 +506,7 @@ async function scan(): Promise<void> {
       lastScan = Date.now();
 
       // Persist state after successful scan
-      saveState({ tradesExecuted, positions, clobPositions, lastScan });
+      saveState({ tradesExecuted, positions, clobPositions, lastScan, clobNonces: collectClobNonces() });
     } catch (err) {
       log.error("Scan error", { error: String(err) });
     }
@@ -601,12 +625,43 @@ serve({ fetch: app.fetch, port: config.port }, (info) => {
 });
 
 // --- Graceful shutdown ---
-function shutdown() {
-  log.info("Shutting down");
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log.info("Shutting down gracefully...");
+
   running = false;
   if (scanTimer) clearTimeout(scanTimer);
+
+  // Cancel open CLOB orders
+  if (config.executionMode === "clob") {
+    const clients: Array<{ name: string; client: ClobClient }> = [];
+    if (probableClobClient) clients.push({ name: "Probable", client: probableClobClient });
+    if (predictClobClient) clients.push({ name: "Predict", client: predictClobClient });
+
+    for (const { name, client } of clients) {
+      try {
+        const openOrders = await client.getOpenOrders();
+        for (const order of openOrders) {
+          try {
+            await client.cancelOrder(order.orderId, order.tokenId);
+            log.info("Cancelled order on shutdown", { name, orderId: order.orderId });
+          } catch (err) {
+            log.error("Failed to cancel order on shutdown", { name, orderId: order.orderId, error: String(err) });
+          }
+        }
+      } catch (err) {
+        log.error("Failed to fetch open orders on shutdown", { name, error: String(err) });
+      }
+    }
+  }
+
+  // Flush state to disk
+  saveState({ tradesExecuted, positions, clobPositions, lastScan, clobNonces: collectClobNonces() });
+  log.info("State flushed to disk");
+
   process.exit(0);
 }
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.on("SIGINT", () => { shutdown(); });
+process.on("SIGTERM", () => { shutdown(); });

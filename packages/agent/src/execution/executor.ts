@@ -87,6 +87,7 @@ export class Executor {
   private clobClients: ClobClients;
   private metaResolvers: Map<string, MarketMetaResolver>;
   private walletClient: WalletClient | null;
+  private paused = false;
 
   constructor(
     vaultClient: VaultClient,
@@ -104,7 +105,20 @@ export class Executor {
     this.walletClient = walletClient ?? null;
   }
 
+  isPaused(): boolean {
+    return this.paused;
+  }
+
+  unpause(): void {
+    this.paused = false;
+    log.info("Executor unpaused");
+  }
+
   async executeBest(opportunity: ArbitOpportunity, maxPositionSize: bigint): Promise<ClobPosition | void> {
+    if (this.paused) {
+      log.warn("Executor is paused due to partial fill — skipping execution");
+      return;
+    }
     if (this.config.executionMode === "clob") {
       return this.executeClob(opportunity, maxPositionSize);
     }
@@ -447,7 +461,8 @@ export class Executor {
       // One filled, other dead — CRITICAL partial fill
       if (statusA.status === "FILLED" && isFinal(statusB.status) && statusB.status !== "FILLED") {
         position.status = "PARTIAL";
-        log.error("CRITICAL: Leg A filled but leg B dead — naked exposure", {
+        this.paused = true;
+        log.error("CRITICAL: Leg A filled but leg B dead — naked exposure, agent paused", {
           positionId: position.id,
           statusA: statusA.status,
           statusB: statusB.status,
@@ -456,7 +471,8 @@ export class Executor {
       }
       if (statusB.status === "FILLED" && isFinal(statusA.status) && statusA.status !== "FILLED") {
         position.status = "PARTIAL";
-        log.error("CRITICAL: Leg B filled but leg A dead — naked exposure", {
+        this.paused = true;
+        log.error("CRITICAL: Leg B filled but leg A dead — naked exposure, agent paused", {
           positionId: position.id,
           statusA: statusA.status,
           statusB: statusB.status,
@@ -494,7 +510,8 @@ export class Executor {
       position.legA.filled = true;
       position.legA.filledSize = finalA.filledSize;
       position.status = "PARTIAL";
-      log.error("CRITICAL: Timeout — leg A filled, cancelled leg B — naked exposure", {
+      this.paused = true;
+      log.error("CRITICAL: Timeout — leg A filled, cancelled leg B — naked exposure, agent paused", {
         positionId: position.id,
       });
       return position;
@@ -505,7 +522,8 @@ export class Executor {
       position.legB.filled = true;
       position.legB.filledSize = finalB.filledSize;
       position.status = "PARTIAL";
-      log.error("CRITICAL: Timeout — leg B filled, cancelled leg A — naked exposure", {
+      this.paused = true;
+      log.error("CRITICAL: Timeout — leg B filled, cancelled leg A — naked exposure, agent paused", {
         positionId: position.id,
       });
       return position;

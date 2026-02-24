@@ -96,6 +96,8 @@ export class PredictClobClient implements ClobClient {
   private dryRun: boolean;
   private nonce: bigint;
   private jwt: string | null;
+  private jwtExpiresAt = 0; // epoch seconds
+  private refreshPromise: Promise<string> | null = null;
   private exchangeCache: Map<string, `0x${string}`>;
 
   constructor(params: {
@@ -163,14 +165,42 @@ export class PredictClobClient implements ClobClient {
     const loginData = (await loginRes.json()) as { success?: boolean; data?: { token: string }; token?: string };
     this.jwt = loginData.data?.token ?? loginData.token ?? null;
 
+    // Parse expiry from JWT payload
+    if (this.jwt) {
+      try {
+        const payload = JSON.parse(Buffer.from(this.jwt.split(".")[1], "base64").toString());
+        this.jwtExpiresAt = payload.exp ?? 0;
+      } catch {
+        this.jwtExpiresAt = 0;
+      }
+    }
+
     log.info("Predict JWT authenticated", { address: account.address });
   }
 
   private async ensureAuth(): Promise<string> {
-    if (this.jwt) return this.jwt;
-    await this.authenticate();
-    if (!this.jwt) throw new Error("Predict authentication failed — no JWT");
-    return this.jwt;
+    // Still valid with 30s buffer
+    if (this.jwt && Date.now() / 1000 < this.jwtExpiresAt - 30) {
+      return this.jwt;
+    }
+
+    // Another call is already refreshing — wait for it
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    // We are the refresher — set the mutex promise
+    this.refreshPromise = (async () => {
+      try {
+        await this.authenticate();
+        if (!this.jwt) throw new Error("Predict authentication failed — no JWT");
+        return this.jwt;
+      } finally {
+        this.refreshPromise = null;
+      }
+    })();
+
+    return this.refreshPromise;
   }
 
   // ---------------------------------------------------------------------------
@@ -217,6 +247,14 @@ export class PredictClobClient implements ClobClient {
   async fetchNonce(): Promise<bigint> {
     log.info("Predict fetchNonce: using local nonce (no server endpoint)", { nonce: this.nonce });
     return this.nonce;
+  }
+
+  getNonce(): bigint {
+    return this.nonce;
+  }
+
+  setNonce(n: bigint): void {
+    this.nonce = n;
   }
 
   // ---------------------------------------------------------------------------

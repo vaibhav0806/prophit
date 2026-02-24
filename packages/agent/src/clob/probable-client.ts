@@ -687,4 +687,12 @@ export class ProbableClobClient implements ClobClient {
     log.info("Probable fetchNonce: using local nonce (no server endpoint)", { nonce: this.nonce })
     return this.nonce
   }
+
+  getNonce(): bigint {
+    return this.nonce
+  }
+
+  setNonce(n: bigint): void {
+    this.nonce = n
+  }
 }

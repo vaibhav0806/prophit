@@ -37,10 +37,11 @@ export function buildOrder(params: {
   const { maker, signer, tokenId, side, price, size, feeRateBps, expirationSec, nonce } = params;
 
   // CTF CLOB amount scaling: 1e6 for Polymarket/Probable, 1e18 for Predict.fun
-  // Use BigInt arithmetic to avoid floating-point overflow with large scales (e.g. 1e18)
+  // Use a two-step multiply to avoid IEEE 754 precision loss: float*1e8 stays within
+  // the 53-bit mantissa (~15 digits), then BigInt handles the remaining scale factor.
   const scaleBig = BigInt(params.scale ?? 1_000_000);
-  const sizeRaw = BigInt(Math.floor(size * 1e6)) * scaleBig / 1_000_000n;
-  const sharesRaw = BigInt(Math.floor((size / price) * 1e6)) * scaleBig / 1_000_000n;
+  const sizeRaw = BigInt(Math.round(size * 1e8)) * scaleBig / 100_000_000n;
+  const sharesRaw = BigInt(Math.round((size / price) * 1e8)) * scaleBig / 100_000_000n;
 
   const isBuy = side === "BUY";
 

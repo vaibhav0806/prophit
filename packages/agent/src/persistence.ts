@@ -10,6 +10,7 @@ export interface PersistedState {
   positions: Position[];
   clobPositions: ClobPosition[];
   lastScan: number;
+  clobNonces?: Record<string, string>;
 }
 
 const BIGINT_FIELDS: ReadonlySet<string> = new Set([
@@ -61,6 +62,7 @@ export function loadState(): PersistedState | null {
         ? parsed.clobPositions as ClobPosition[]
         : [],
       lastScan: parsed.lastScan ?? 0,
+      clobNonces: parsed.clobNonces ?? undefined,
     };
   } catch {
     log.warn("Could not load persisted state, starting fresh");

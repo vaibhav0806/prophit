@@ -57,7 +57,7 @@ export function createWalletRoutes(params: {
       deposits: userDeposits.map(d => ({
         id: d.id,
         token: d.token,
-        amount: formatUnits(d.amount, 18),
+        amount: formatUnits(BigInt(d.amount), 18),
         confirmedAt: d.confirmedAt.toISOString(),
       })),
     });
@@ -152,7 +152,7 @@ export function createWalletRoutes(params: {
       userId,
       toAddress: body.toAddress.toLowerCase(),
       token: body.token,
-      amount,
+      amount: amount.toString(),
       status: "pending",
     });
 

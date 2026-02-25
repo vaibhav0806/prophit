@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, bigint, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, integer, bigint, numeric, jsonb, index } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 // Use nanoid-style IDs (text) not auto-increment. Generate with crypto.randomUUID().
@@ -39,7 +39,7 @@ export const deposits = pgTable("deposits", {
   userId: text("user_id").notNull().references(() => users.id),
   txHash: text("tx_hash").notNull().unique(),
   token: text("token").notNull(), // "USDT" | "BNB"
-  amount: bigint("amount", { mode: "bigint" }).notNull(),
+  amount: numeric("amount", { precision: 78, scale: 0 }).notNull(),
   confirmedAt: timestamp("confirmed_at").defaultNow().notNull(),
 });
 
@@ -48,7 +48,7 @@ export const withdrawals = pgTable("withdrawals", {
   userId: text("user_id").notNull().references(() => users.id),
   toAddress: text("to_address").notNull(),
   token: text("token").notNull(),
-  amount: bigint("amount", { mode: "bigint" }).notNull(),
+  amount: numeric("amount", { precision: 78, scale: 0 }).notNull(),
   txHash: text("tx_hash"),
   status: text("status").notNull().default("pending"), // pending | processing | confirmed | failed
   createdAt: timestamp("created_at").defaultNow().notNull(),

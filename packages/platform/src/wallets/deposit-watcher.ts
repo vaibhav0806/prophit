@@ -101,7 +101,7 @@ export class DepositWatcher {
               userId: wallet.userId,
               txHash,
               token: "USDT",
-              amount: depositAmount,
+              amount: depositAmount.toString(),
             });
             console.log(`[DepositWatcher] USDT deposit detected for user ${wallet.userId}: ${formatUnits(depositAmount, 18)}`);
           }
@@ -117,7 +117,7 @@ export class DepositWatcher {
               userId: wallet.userId,
               txHash,
               token: "BNB",
-              amount: depositAmount,
+              amount: depositAmount.toString(),
             });
             console.log(`[DepositWatcher] BNB deposit detected for user ${wallet.userId}: ${formatUnits(depositAmount, 18)}`);
           }

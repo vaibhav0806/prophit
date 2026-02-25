@@ -63,7 +63,7 @@ export class WithdrawalProcessor {
           params: {
             transaction: {
               to: withdrawal.toAddress,
-              value: `0x${withdrawal.amount.toString(16)}`,
+              value: `0x${BigInt(withdrawal.amount).toString(16)}`,
             },
           },
           authorization_context: authorizationContext,
@@ -74,7 +74,7 @@ export class WithdrawalProcessor {
         const data = encodeFunctionData({
           abi: erc20TransferAbi,
           functionName: "transfer",
-          args: [withdrawal.toAddress as `0x${string}`, withdrawal.amount],
+          args: [withdrawal.toAddress as `0x${string}`, BigInt(withdrawal.amount)],
         });
 
         const result = await this.privyClient.wallets().ethereum().sendTransaction(walletId, {

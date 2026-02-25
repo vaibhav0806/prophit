@@ -5,7 +5,6 @@
   "exports": {
     ".": "./src/index.ts",
     "./db": "./src/db/index.ts",
-    "./crypto": "./src/crypto.ts",
     "./types": "./src/types.ts"
   },
   "dependencies": {

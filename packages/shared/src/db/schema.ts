@@ -14,22 +14,21 @@ export const tradingWallets = pgTable("trading_wallets", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id),
   address: text("address").notNull().unique(),
-  derivationIndex: integer("derivation_index").notNull(),
-  encryptedPrivateKey: text("encrypted_private_key").notNull(), // AES-256-GCM encrypted
-  safeProxyAddress: text("safe_proxy_address"), // null if EOA works
+  privyWalletId: text("privy_wallet_id").notNull(),
+  safeProxyAddress: text("safe_proxy_address"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const userConfigs = pgTable("user_configs", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id).unique(),
-  minTradeSize: bigint("min_trade_size", { mode: "bigint" }).notNull().default(sql`1000000`), // 1 USDT
-  maxTradeSize: bigint("max_trade_size", { mode: "bigint" }).notNull().default(sql`500000000`), // 500 USDT
+  minTradeSize: bigint("min_trade_size", { mode: "bigint" }).notNull().default(sql`5`), // $5 USDT
+  maxTradeSize: bigint("max_trade_size", { mode: "bigint" }).notNull().default(sql`100`), // $100 USDT
   minSpreadBps: integer("min_spread_bps").notNull().default(100),
   maxTotalTrades: integer("max_total_trades"), // null = unlimited
   tradingDurationMs: bigint("trading_duration_ms", { mode: "bigint" }), // null = unlimited
   tradingStartedAt: timestamp("trading_started_at"),
-  dailyLossLimit: bigint("daily_loss_limit", { mode: "bigint" }).notNull().default(sql`50000000`), // 50 USDT
+  dailyLossLimit: bigint("daily_loss_limit", { mode: "bigint" }).notNull().default(sql`50`), // $50 USDT — safety circuit breaker for execution failures
   maxResolutionDays: integer("max_resolution_days"), // null = any
   agentStatus: text("agent_status").notNull().default("stopped"), // stopped | running | error
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

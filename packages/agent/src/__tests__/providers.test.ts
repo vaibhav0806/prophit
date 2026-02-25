@@ -173,6 +173,7 @@ describe("PredictProvider", () => {
     const meta = provider.getMarketMeta(MKT_ID);
     expect(meta).toEqual({
       conditionId: MKT_ID,
+      predictMarketId: "42",
       yesTokenId: "yes-pred",
       noTokenId: "no-pred",
     });

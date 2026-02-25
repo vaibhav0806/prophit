@@ -18,6 +18,7 @@ export interface QuoteStore {
 export interface AgentInstanceConfig {
   minSpreadBps: number;
   maxPositionSize: bigint;
+  minTradeSize?: bigint;
   scanIntervalMs: number;
   executionMode: "vault" | "clob";
   dailyLossLimit: bigint;

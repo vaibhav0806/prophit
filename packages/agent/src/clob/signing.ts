@@ -76,6 +76,40 @@ export function buildOrder(params: {
     }
   }
 
+  // After slippage, re-snap to 0.001 tick grid for Probable ME.
+  // Slippage inflate destroys the clean price ratio that quantize produced.
+  // BUY: ceil price ticks (pay slightly more, stays within slippage budget).
+  // SELL: floor price ticks (accept slightly less).
+  if (params.quantize && slipBps > 0n && scaleBig >= 1_000_000_000_000_000_000n) {
+    const TICK_DENOM = 1000n; // 0.001 tick
+    if (isBuy) {
+      // price = makerAmount / takerAmount → ceil to next tick
+      const priceTicks = (makerAmount * TICK_DENOM + takerAmount - 1n) / takerAmount;
+      makerAmount = takerAmount * priceTicks / TICK_DENOM;
+    } else {
+      // price = takerAmount / makerAmount → floor to prev tick
+      const priceTicks = takerAmount * TICK_DENOM / makerAmount;
+      takerAmount = makerAmount * priceTicks / TICK_DENOM;
+    }
+  }
+
+  // For Predict LIMIT orders (no slippage, 1e18 scale, no quantize):
+  // Derive the dependent amount from the independent one via exact price arithmetic
+  // so that takerAmount == priceWei * makerAmount / 1e18 holds exactly.
+  // Without this, independent computation of sizeRaw and sharesRaw introduces
+  // BigInt truncation mismatches that Predict rejects (NonMatchingAmountsError).
+  if (!params.quantize && slipBps === 0n && scaleBig >= 1_000_000_000_000_000_000n) {
+    // Two-step multiply avoids IEEE 754 precision loss on price * 1e18
+    const priceWei = BigInt(Math.round(price * 1e8)) * (scaleBig / 100_000_000n);
+    if (isBuy) {
+      // BUY: takerAmount = shares (independent), makerAmount = shares * price / scale
+      makerAmount = takerAmount * priceWei / scaleBig;
+    } else {
+      // SELL: makerAmount = shares (independent), takerAmount = shares * price / scale
+      takerAmount = makerAmount * priceWei / scaleBig;
+    }
+  }
+
   return {
     salt: BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)),
     maker,

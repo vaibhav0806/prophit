@@ -30,6 +30,8 @@ export interface PlaceOrderParams {
   price: number; // 0-1 (e.g. 0.068)
   size: number; // USDT amount (e.g. 100)
   marketId?: string; // Predict.fun market ID — used to resolve per-market exchange address
+  strategy?: "MARKET" | "LIMIT"; // default MARKET for arb, LIMIT for unwinds
+  isFillOrKill?: boolean; // default true for MARKET, false for LIMIT
 }
 
 export interface OrderResult {

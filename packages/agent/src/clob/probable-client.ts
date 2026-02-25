@@ -316,6 +316,7 @@ export class ProbableClobClient implements ClobClient {
         scale: PROBABLE_SCALE,
         signatureType: this.proxyAddress ? 2 : 0,
         quantize: true,
+        slippageBps: 100, // 1% slippage buffer for FOK fills
       })
 
       const signed = await signOrder(
@@ -737,9 +738,9 @@ export class ProbableClobClient implements ClobClient {
       args: [account.address],
     })
 
-    // Split evenly: each wallet (EOA + Safe) gets half the total
-    const totalBalance = eoaBalance + safeBalance
-    const eoaReserve = totalBalance / 2n
+    // Reserve enough in EOA for the Predict leg (half the position + 5% buffer for fees/gas)
+    const halfThreshold18 = threshold18 / 2n;
+    const eoaReserve = halfThreshold18 + (halfThreshold18 * 5n / 100n); // half + 5% buffer
     const transferable = eoaBalance > eoaReserve ? eoaBalance - eoaReserve : 0n
     if (transferable === 0n) {
       log.warn("EOA USDT insufficient to fund Safe (need to reserve for Predict leg)", {

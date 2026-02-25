@@ -91,6 +91,7 @@ export class Executor {
   private clobClients: ClobClients;
   private metaResolvers: Map<string, MarketMetaResolver>;
   private walletClient: WalletClient | null;
+  private minTradeSize: bigint | undefined;
   private paused = false;
   private consecutiveVerificationFailures = 0;
   private static readonly MAX_VERIFICATION_FAILURES = 2;
@@ -102,6 +103,7 @@ export class Executor {
     clobClients?: ClobClients,
     metaResolvers?: Map<string, MarketMetaResolver>,
     walletClient?: WalletClient,
+    minTradeSize?: bigint,
   ) {
     this.vaultClient = vaultClient ?? null;
     this.config = config;
@@ -109,6 +111,7 @@ export class Executor {
     this.clobClients = clobClients ?? {};
     this.metaResolvers = metaResolvers ?? new Map();
     this.walletClient = walletClient ?? null;
+    this.minTradeSize = minTradeSize;
   }
 
   isPaused(): boolean {
@@ -273,6 +276,17 @@ export class Executor {
       return;
     }
 
+    // Log market mapping for audit trail — helps detect false-positive matches
+    log.info("Market mapping resolved", {
+      marketId: opportunity.marketId,
+      protocolA: opportunity.protocolA,
+      protocolB: opportunity.protocolB,
+      conditionIdA: metaA.conditionId,
+      conditionIdB: metaB.conditionId,
+      tokenA: opportunity.buyYesOnA ? metaA.yesTokenId : metaA.noTokenId,
+      tokenB: opportunity.buyYesOnA ? metaB.noTokenId : metaB.yesTokenId,
+    });
+
     // Calculate size: cap to liquidity (90%)
     const SCALE = 1_000_000n;
     let sizeUsdt = Number(maxPositionSize / 2n) / 1_000_000; // Convert 6-dec to human
@@ -283,8 +297,10 @@ export class Executor {
     if (liqA > 0 && liqA * 0.9 < sizeUsdt) sizeUsdt = liqA * 0.9;
     if (liqB > 0 && liqB * 0.9 < sizeUsdt) sizeUsdt = liqB * 0.9;
 
-    if (sizeUsdt < 1) {
-      log.info("CLOB: position size too small after liquidity cap", { sizeUsdt });
+    // Enforce minimum trade size
+    const minSizeUsdt = this.minTradeSize ? Number(this.minTradeSize) / 1_000_000 : 1;
+    if (sizeUsdt < minSizeUsdt) {
+      log.info("CLOB: position size below minimum trade size", { sizeUsdt, minSizeUsdt });
       return;
     }
 
@@ -305,7 +321,7 @@ export class Executor {
           // Cap size to EOA balance instead of skipping entirely
           // Floor to 8dp to prevent Math.round(x*1e8) in signing.ts from rounding past actual balance
           const eoaUsdt = Math.floor(Number(usdtBalance) / 1e18 * 1e8) / 1e8 / eoaLegs;
-          if (eoaUsdt >= 1) {
+          if (eoaUsdt >= minSizeUsdt) {
             log.info("CLOB: capping trade size to EOA balance", {
               original: sizeUsdt,
               capped: eoaUsdt,
@@ -335,12 +351,12 @@ export class Executor {
           functionName: "balanceOf",
           args: [proxyAddr],
         });
-        const requiredWei = BigInt(Math.round(sizeUsdt * 1e6)) * 10n ** 12n;
+        const requiredWei = BigInt(Math.round(sizeUsdt * 1.0175 * 1e6)) * 10n ** 12n;
         if (safeBalance < requiredWei) {
           // Cap size to Safe balance instead of skipping entirely
           // Floor to 8dp to prevent Math.round(x*1e8) in signing.ts from rounding past actual balance
           const safeUsdt = Math.floor(Number(safeBalance) / 1e18 * 1e8) / 1e8;
-          if (safeUsdt >= 1) {
+          if (safeUsdt >= minSizeUsdt) {
             log.info("CLOB: capping trade size to Safe balance for Probable leg", {
               safe: proxyAddr,
               original: sizeUsdt,
@@ -813,57 +829,82 @@ export class Executor {
 
   private async attemptUnwind(client: ClobClient, leg: ClobLeg): Promise<void> {
     const size = leg.filledSize > 0 ? leg.filledSize : leg.size;
-    const price = Math.round(leg.price * 0.95 * 100) / 100; // 5% discount
+    const discounts = [0.05, 0.10, 0.20]; // progressively more aggressive
+    let anyPlaced = false; // track if any order reached the matching engine
 
-    log.info("Attempting to unwind filled leg", {
-      platform: leg.platform, tokenId: leg.tokenId, side: "SELL", price, size,
-    });
+    for (let attempt = 0; attempt < discounts.length; attempt++) {
+      const discount = discounts[attempt];
+      const price = Math.round(leg.price * (1 - discount) * 10000) / 10000; // 4dp precision
 
-    try {
-      const result = await client.placeOrder({
-        tokenId: leg.tokenId, side: "SELL", price, size,
-        ...(leg.marketId ? { marketId: leg.marketId } : {}),
+      log.info("Attempting to unwind filled leg", {
+        platform: leg.platform, tokenId: leg.tokenId, side: "SELL", price, size,
+        attempt: attempt + 1, maxAttempts: discounts.length,
       });
 
-      if (!result.success || !result.orderId) {
-        log.error("Unwind order rejected", { platform: leg.platform, error: result.error });
-        return;
-      }
+      try {
+        const result = await client.placeOrder({
+          tokenId: leg.tokenId, side: "SELL", price, size,
+          ...(leg.marketId ? { marketId: leg.marketId } : {}),
+          strategy: "LIMIT", // GTC LIMIT for unwinds — sits on the book instead of dying instantly
+          isFillOrKill: false,
+        });
 
-      log.info("Unwind order placed, monitoring for fill", { orderId: result.orderId });
-
-      // Poll for unwind order fill
-      const deadline = Date.now() + UNWIND_POLL_TIMEOUT_MS;
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, UNWIND_POLL_INTERVAL_MS));
-        try {
-          const status = await client.getOrderStatus(result.orderId);
-          if (status.status === "FILLED") {
-            log.info("Unwind order filled — auto-unpausing executor", {
-              orderId: result.orderId, platform: leg.platform, filledSize: status.filledSize,
-            });
-            this.paused = false;
-            return;
-          }
-          if (status.status === "CANCELLED" || status.status === "EXPIRED") {
-            log.error("Unwind order cancelled/expired — executor remains paused", {
-              orderId: result.orderId, status: status.status,
-            });
-            return;
-          }
-        } catch (pollErr) {
-          log.warn("Unwind poll error, will retry", { error: String(pollErr) });
+        if (!result.success || !result.orderId) {
+          log.error("Unwind order rejected", { platform: leg.platform, error: result.error, attempt: attempt + 1 });
+          continue; // try next discount
         }
-      }
 
-      // Timeout
-      log.error("Unwind order timed out — executor remains paused, manual intervention required", {
-        orderId: result.orderId, platform: leg.platform, timeoutMs: UNWIND_POLL_TIMEOUT_MS,
+        anyPlaced = true;
+        log.info("Unwind order placed, monitoring for fill", { orderId: result.orderId, attempt: attempt + 1 });
+
+        // Poll for unwind order fill
+        const deadline = Date.now() + UNWIND_POLL_TIMEOUT_MS;
+        let filled = false;
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, UNWIND_POLL_INTERVAL_MS));
+          try {
+            const status = await client.getOrderStatus(result.orderId);
+            if (status.status === "FILLED") {
+              log.info("Unwind order filled — auto-unpausing executor", {
+                orderId: result.orderId, platform: leg.platform, filledSize: status.filledSize,
+              });
+              this.paused = false;
+              return;
+            }
+            if (status.status === "CANCELLED" || status.status === "EXPIRED") {
+              log.warn("Unwind order cancelled/expired, will retry with deeper discount", {
+                orderId: result.orderId, status: status.status, attempt: attempt + 1,
+              });
+              break; // break inner poll loop, try next discount
+            }
+          } catch (pollErr) {
+            log.warn("Unwind poll error, will retry", { error: String(pollErr) });
+          }
+        }
+
+        if (!filled) {
+          log.warn("Unwind attempt did not fill", { attempt: attempt + 1, price });
+        }
+      } catch (err) {
+        log.error("Unwind attempt failed", {
+          platform: leg.platform, tokenId: leg.tokenId, error: String(err), attempt: attempt + 1,
+        });
+      }
+    }
+
+    // Distinguish systematic errors (all orders rejected at API level = code bug)
+    // from transient failures (orders placed but didn't fill = liquidity/timing).
+    // Only auto-unpause on transient failures to prevent compounding losses.
+    if (anyPlaced) {
+      log.error("All unwind attempts exhausted (transient) — auto-unpausing executor. Manual review recommended.", {
+        platform: leg.platform, tokenId: leg.tokenId, size,
       });
-    } catch (err) {
-      log.error("Unwind failed — executor remains paused", {
-        platform: leg.platform, tokenId: leg.tokenId, error: String(err),
+      this.paused = false;
+    } else {
+      log.error("All unwind orders rejected (systematic) — executor stays paused. Manual intervention required.", {
+        platform: leg.platform, tokenId: leg.tokenId, size,
       });
+      // this.paused remains true — don't auto-unpause on systematic bugs
     }
   }
 

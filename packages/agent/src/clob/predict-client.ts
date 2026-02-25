@@ -322,7 +322,7 @@ export class PredictClobClient implements ClobClient {
         expirationSec: this.expirationSec,
         nonce: this.nonce,
         scale: PREDICT_SCALE,
-        slippageBps: 200, // bake 2% slippage into on-chain makerAmount/takerAmount for MARKET FOK
+        slippageBps: params.strategy === "LIMIT" ? 0 : 200,
       });
 
       const { signature } = await signOrder(
@@ -363,7 +363,8 @@ export class PredictClobClient implements ClobClient {
 
       // Predict.fun expects price as wei string (18 decimals)
       // e.g. price 0.50 → "500000000000000000"
-      const pricePerShare = BigInt(Math.floor(params.price * 1e18)).toString();
+      // Two-step multiply avoids IEEE 754 precision loss (e.g. 0.2195 * 1e18 drifts)
+      const pricePerShare = (BigInt(Math.round(params.price * 1e8)) * 10_000_000_000n).toString();
 
       // Build the Predict.fun order payload:
       // - side is numeric (0 = BUY, 1 = SELL), not string
@@ -389,9 +390,9 @@ export class PredictClobClient implements ClobClient {
             hash,
           },
           pricePerShare,
-          strategy: "MARKET",
-          isFillOrKill: true,
-          slippageBps: "200",
+          strategy: params.strategy ?? "MARKET",
+          isFillOrKill: params.isFillOrKill ?? (params.strategy === "LIMIT" ? false : true),
+          ...(params.strategy === "LIMIT" ? {} : { slippageBps: "200" }),
         },
       };
 

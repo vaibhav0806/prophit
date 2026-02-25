@@ -181,7 +181,7 @@ describe("executeClob", () => {
 
     vi.mocked(clientB.placeOrder)
       .mockResolvedValueOnce({ success: true, orderId: "predict-1" })   // Predict leg
-      .mockResolvedValueOnce({ success: false, error: "rejected" });     // unwind attempt fails
+      .mockResolvedValue({ success: false, error: "rejected" });         // all 3 unwind attempts fail
     vi.mocked(clientA.placeOrder)
       .mockResolvedValueOnce({ success: true, orderId: "probable-1" }); // Probable placement
 
@@ -191,11 +191,8 @@ describe("executeClob", () => {
     await vi.advanceTimersByTimeAsync(15000);
     await partialPromise;
 
+    // All unwind orders rejected (systematic) — executor stays paused
     expect(executorWithProxy.isPaused()).toBe(true);
-
-    // Now try to execute again — should skip
-    const result = await executorWithProxy.executeBest(createOpportunity(), 100_000_000n);
-    expect(result).toBeUndefined();
 
     vi.useRealTimers();
   });
@@ -429,14 +426,14 @@ describe("pollForFills", () => {
     expect(result.status).toBe("EXPIRED");
   });
 
-  it("sets PARTIAL and pauses when leg A fills but leg B dies", async () => {
+  it("sets PARTIAL and stays paused when leg A fills but leg B dies (systematic)", async () => {
     vi.mocked(clientA.getOrderStatus).mockResolvedValue({
       orderId: "a-order-1", status: "FILLED", filledSize: 50, remainingSize: 0,
     });
     vi.mocked(clientB.getOrderStatus).mockResolvedValue({
       orderId: "b-order-1", status: "CANCELLED", filledSize: 0, remainingSize: 50,
     });
-    // Unwind order rejected so executor stays paused
+    // Unwind order rejected — all 3 retry attempts fail (systematic → stays paused)
     vi.mocked(clientA.placeOrder).mockResolvedValue({ success: false, error: "rejected" });
 
     const pos = makePosition();
@@ -449,14 +446,14 @@ describe("pollForFills", () => {
     expect(result.legA.filled).toBe(true);
   });
 
-  it("sets PARTIAL and pauses when leg B fills but leg A dies", async () => {
+  it("sets PARTIAL and stays paused when leg B fills but leg A dies (systematic)", async () => {
     vi.mocked(clientA.getOrderStatus).mockResolvedValue({
       orderId: "a-order-1", status: "EXPIRED", filledSize: 0, remainingSize: 50,
     });
     vi.mocked(clientB.getOrderStatus).mockResolvedValue({
       orderId: "b-order-1", status: "FILLED", filledSize: 50, remainingSize: 0,
     });
-    // Unwind order rejected
+    // Unwind order rejected — all 3 retry attempts fail (systematic → stays paused)
     vi.mocked(clientB.placeOrder).mockResolvedValue({ success: false, error: "rejected" });
 
     const pos = makePosition();
@@ -512,7 +509,7 @@ describe("pollForFills", () => {
     vi.mocked(clientB.getOrderStatus).mockResolvedValue({
       orderId: "b-order-1", status: "OPEN", filledSize: 0, remainingSize: 50,
     });
-    // Unwind order rejected so it stays paused
+    // Unwind order rejected — all 3 retry attempts fail (systematic → stays paused)
     vi.mocked(clientA.placeOrder).mockResolvedValue({ success: false, error: "rejected" });
 
     await vi.advanceTimersByTimeAsync(500);
@@ -621,7 +618,7 @@ describe("attemptUnwind", () => {
     expect(executor.isPaused()).toBe(false);
   });
 
-  it("stays paused when unwind order is rejected", async () => {
+  it("stays paused when all unwind retries are rejected (systematic)", async () => {
     vi.mocked(clientA.getOrderStatus).mockResolvedValue({
       orderId: "a-order-1", status: "FILLED", filledSize: 50, remainingSize: 0,
     });
@@ -629,7 +626,7 @@ describe("attemptUnwind", () => {
       orderId: "b-order-1", status: "CANCELLED", filledSize: 0, remainingSize: 50,
     });
 
-    // Unwind placeOrder succeeds but order rejected (success=false)
+    // Unwind placeOrder rejected (success=false) — all 3 retry attempts fail
     vi.mocked(clientA.placeOrder).mockResolvedValue({
       success: false, error: "insufficient balance",
     });
@@ -642,7 +639,7 @@ describe("attemptUnwind", () => {
     expect(executor.isPaused()).toBe(true);
   });
 
-  it("stays paused when unwind order expires", async () => {
+  it("auto-unpauses when all unwind retries expire (transient)", async () => {
     vi.mocked(clientA.getOrderStatus).mockResolvedValue({
       orderId: "a-order-1", status: "FILLED", filledSize: 50, remainingSize: 0,
     });
@@ -654,7 +651,7 @@ describe("attemptUnwind", () => {
       success: true, orderId: "unwind-order-1",
     });
 
-    // Unwind order status: EXPIRED
+    // Unwind order status: EXPIRED — all 3 retry attempts expire
     vi.mocked(clientA.getOrderStatus).mockImplementation(async (orderId: string) => {
       if (orderId === "unwind-order-1") {
         return { orderId, status: "EXPIRED", filledSize: 0, remainingSize: 50 };
@@ -664,14 +661,14 @@ describe("attemptUnwind", () => {
 
     const pos = makePosition();
     const pollPromise = executor.pollForFills(pos);
-    // Need enough time for the initial poll + unwind poll interval
-    await vi.advanceTimersByTimeAsync(20_000);
+    // Need enough time for 3 retry attempts: each does poll(10s) + sees EXPIRED
+    await vi.advanceTimersByTimeAsync(60_000);
     await pollPromise;
 
-    expect(executor.isPaused()).toBe(true);
+    expect(executor.isPaused()).toBe(false);
   });
 
-  it("stays paused on unwind placement error", async () => {
+  it("stays paused when all unwind retries throw errors (systematic)", async () => {
     vi.mocked(clientA.getOrderStatus).mockResolvedValue({
       orderId: "a-order-1", status: "FILLED", filledSize: 50, remainingSize: 0,
     });
@@ -679,7 +676,7 @@ describe("attemptUnwind", () => {
       orderId: "b-order-1", status: "CANCELLED", filledSize: 0, remainingSize: 50,
     });
 
-    // placeOrder throws
+    // placeOrder throws — all 3 retry attempts fail with errors
     vi.mocked(clientA.placeOrder).mockRejectedValue(new Error("network timeout"));
 
     const pos = makePosition();
@@ -796,5 +793,266 @@ describe("closeResolvedClob", () => {
     // Market is resolved but no walletClient, so cannot redeem
     expect(closed).toBe(0);
     expect(positions[0].status).toBe("FILLED"); // unchanged
+  });
+});
+
+// ---------------------------------------------------------------------------
+// integration: fixed execution flow
+// ---------------------------------------------------------------------------
+
+describe("integration: fixed execution flow", () => {
+  const walletAccount = { address: "0x1111111111111111111111111111111111111111" as `0x${string}` };
+  const proxyAddr = "0x3333333333333333333333333333333333333333" as `0x${string}`;
+
+  let clientA: ClobClient;
+  let clientB: ClobClient;
+
+  beforeEach(() => {
+    clientA = createMockClobClient("probable");
+    clientB = createMockClobClient("predict");
+    mockPublicClient.readContract.mockReset();
+    mockPublicClient.getGasPrice.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("caps trade size when Safe balance is insufficient including the 1.75% fee", async () => {
+    // maxPositionSize = 6_000_000n → sizeUsdt = 6/2 = 3 USDT
+    // Fee-inclusive: 3 * 1.0175 = 3.0525 USDT, but Safe only has 2.0 USDT
+    // requiredWei = BigInt(Math.round(3 * 1.0175 * 1e6)) * 10n**12n = 3_052_500n * 10n**12n = 3.0525e18
+    // Safe balance = 2.0e18 < 3.0525e18 → cap to floor(2.0 * 1e8) / 1e8 = 2.0
+    const config = { ...mockConfig, dryRun: false, maxPositionSize: 6_000_000n };
+    const executor = new Executor(
+      undefined,
+      config,
+      mockPublicClient,
+      { probable: clientA, predict: clientB, probableProxyAddress: proxyAddr },
+      createMetaResolvers(),
+      { account: walletAccount } as any,
+    );
+
+    // Balance calls for pre-checks:
+    // 1. EOA pre-check (eoaLegs=1 with proxy) — enough
+    // 2. Safe pre-check — only 2 USDT, below fee-inclusive requirement
+    mockPublicClient.readContract
+      .mockResolvedValueOnce(100n * 10n ** 18n) // EOA balance pre-check — plenty
+      .mockResolvedValueOnce(2n * 10n ** 18n);  // Safe balance pre-check — only 2 USDT
+
+    // After capping to 2.0 USDT, executor proceeds with dryRun=false sequential flow.
+    // We need: pre-trade EOA snapshot, pre-trade Safe snapshot, then post-trade checks.
+    // But since predictClient (clientB) will fail, we won't get past Predict placement.
+    vi.mocked(clientB.placeOrder).mockResolvedValueOnce({ success: false, error: "FOK rejected" });
+
+    const opp = createOpportunity();
+    const result = await executor.executeBest(opp, 6_000_000n);
+
+    // Predict order was attempted (even if rejected), meaning size was capped, not skipped.
+    // Verify placeOrder was called with capped size.
+    expect(clientB.placeOrder).toHaveBeenCalledOnce();
+    const predictCall = vi.mocked(clientB.placeOrder).mock.calls[0]?.[0] as PlaceOrderParams;
+    // sizeUsdt should be capped to 2.0 (floor(2.0e18 / 1e18 * 1e8) / 1e8 = 2.0)
+    expect(predictCall.size).toBe(2);
+    // Probable should NOT have been called since Predict failed
+    expect(clientA.placeOrder).not.toHaveBeenCalled();
+    // Result is undefined because Predict leg failed
+    expect(result).toBeUndefined();
+  });
+
+  it("places unwind SELL at correct low-price precision (0.014 → ~0.0133)", async () => {
+    vi.useFakeTimers();
+
+    // Set up an executor with proxy
+    const config = { ...mockConfig, dryRun: false };
+    const executor = new Executor(
+      undefined,
+      config,
+      mockPublicClient,
+      { probable: clientA, predict: clientB, probableProxyAddress: proxyAddr },
+      createMetaResolvers(),
+      { account: walletAccount } as any,
+    );
+
+    // We need the Predict leg to fill and Probable to fail, triggering unwind.
+    // Using default opp: protocolA="probable", protocolB="predict"
+    // predictClient=clientB, probableClient=clientA
+    // We'll set the Predict price (yesPriceA = probable price) and noPriceB (predict price) = 0.014
+    const opp = createOpportunity({
+      noPriceB: BigInt(14e15), // 0.014 in 1e18
+      yesPriceA: BigInt(5e17), // 0.5 for Probable side
+    });
+
+    // Balance calls:
+    // 1. EOA pre-check
+    // 2. Safe pre-check
+    // 3. pre-trade EOA snapshot
+    // 4. pre-trade Safe snapshot
+    // 5. post-trade EOA (after Predict) — dropped → Predict filled
+    // 6. post-trade Safe (after Probable) — no change → Probable didn't fill
+    mockPublicClient.readContract
+      .mockResolvedValueOnce(100n * 10n ** 18n)  // EOA pre-check
+      .mockResolvedValueOnce(100n * 10n ** 18n)  // Safe pre-check
+      .mockResolvedValueOnce(100n * 10n ** 18n)  // pre-trade EOA snapshot
+      .mockResolvedValueOnce(100n * 10n ** 18n)  // pre-trade Safe snapshot
+      .mockResolvedValueOnce(50n * 10n ** 18n)   // post-trade EOA (50 spent → Predict filled)
+      .mockResolvedValueOnce(100n * 10n ** 18n); // post-trade Safe (no change → Probable didn't fill)
+
+    // Predict placement succeeds
+    vi.mocked(clientB.placeOrder).mockResolvedValueOnce({ success: true, orderId: "predict-1" });
+    // Probable placement succeeds (but won't fill per balance check)
+    vi.mocked(clientA.placeOrder).mockResolvedValueOnce({ success: true, orderId: "probable-1" });
+
+    // Now the Predict-filled, Probable-not-filled path triggers attemptUnwind on predictClient (clientB).
+    // The unwind will SELL on clientB with leg price = 0.014 (noPriceB).
+    // First unwind attempt: price = round(0.014 * 0.95 * 10000) / 10000 = round(133) / 10000 = 0.0133
+    // Mock the unwind placeOrder on clientB to succeed, then poll to FILLED
+    vi.mocked(clientB.placeOrder)
+      .mockResolvedValueOnce({ success: true, orderId: "unwind-1" }); // unwind attempt 1
+
+    vi.mocked(clientB.getOrderStatus).mockResolvedValue({
+      orderId: "unwind-1", status: "FILLED", filledSize: 50, remainingSize: 0,
+    });
+
+    const promise = executor.executeBest(opp, 100_000_000n);
+    // Advance past the two 3s balance-check waits + unwind poll interval (10s)
+    await vi.advanceTimersByTimeAsync(30_000);
+    const result = await promise;
+
+    expect(result).toBeDefined();
+    expect(result!.status).toBe("PARTIAL");
+
+    // Check the unwind placeOrder call args (the second call on clientB — first was the Predict placement)
+    const allClientBCalls = vi.mocked(clientB.placeOrder).mock.calls;
+    // calls[0] = Predict placement, calls[1] = unwind SELL
+    expect(allClientBCalls.length).toBeGreaterThanOrEqual(2);
+    const unwindCall = allClientBCalls[1][0] as PlaceOrderParams;
+    expect(unwindCall.side).toBe("SELL");
+    // price = round(0.014 * 0.95 * 10000) / 10000 = 0.0133
+    expect(unwindCall.price).toBeCloseTo(0.0133, 4);
+    // Crucially: NOT rounded down to 0.01
+    expect(unwindCall.price).toBeGreaterThan(0.01);
+  });
+
+  it("uses LIMIT strategy and isFillOrKill=false for unwinds", async () => {
+    vi.useFakeTimers();
+
+    const config = { ...mockConfig, dryRun: false };
+    const executor = new Executor(
+      undefined,
+      config,
+      mockPublicClient,
+      { probable: clientA, predict: clientB, probableProxyAddress: proxyAddr },
+      createMetaResolvers(),
+      { account: walletAccount } as any,
+    );
+
+    const opp = createOpportunity();
+
+    // Balance calls to trigger: Predict fills, Probable doesn't
+    mockPublicClient.readContract
+      .mockResolvedValueOnce(100n * 10n ** 18n)  // EOA pre-check
+      .mockResolvedValueOnce(100n * 10n ** 18n)  // Safe pre-check
+      .mockResolvedValueOnce(100n * 10n ** 18n)  // pre-trade EOA snapshot
+      .mockResolvedValueOnce(100n * 10n ** 18n)  // pre-trade Safe snapshot
+      .mockResolvedValueOnce(50n * 10n ** 18n)   // post-trade EOA → Predict filled
+      .mockResolvedValueOnce(100n * 10n ** 18n); // post-trade Safe → Probable not filled
+
+    vi.mocked(clientB.placeOrder).mockResolvedValueOnce({ success: true, orderId: "predict-1" });
+    vi.mocked(clientA.placeOrder).mockResolvedValueOnce({ success: true, orderId: "probable-1" });
+
+    // Unwind on clientB: will be called after partial fill detection
+    vi.mocked(clientB.placeOrder)
+      .mockResolvedValueOnce({ success: true, orderId: "unwind-1" }); // unwind attempt 1
+
+    vi.mocked(clientB.getOrderStatus).mockResolvedValue({
+      orderId: "unwind-1", status: "FILLED", filledSize: 50, remainingSize: 0,
+    });
+
+    const promise = executor.executeBest(opp, 100_000_000n);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await promise;
+
+    // Verify the unwind call has strategy: "LIMIT" and isFillOrKill: false
+    const allClientBCalls = vi.mocked(clientB.placeOrder).mock.calls;
+    expect(allClientBCalls.length).toBeGreaterThanOrEqual(2);
+    const unwindCall = allClientBCalls[1][0] as PlaceOrderParams;
+    expect(unwindCall.strategy).toBe("LIMIT");
+    expect(unwindCall.isFillOrKill).toBe(false);
+    expect(unwindCall.side).toBe("SELL");
+  });
+
+  it("auto-unpauses after exhausting all 3 unwind retries", async () => {
+    vi.useFakeTimers();
+
+    const config = { ...mockConfig, dryRun: false };
+    const executor = new Executor(
+      undefined,
+      config,
+      mockPublicClient,
+      { probable: clientA, predict: clientB, probableProxyAddress: proxyAddr },
+      createMetaResolvers(),
+      { account: walletAccount } as any,
+    );
+
+    const opp = createOpportunity();
+
+    // Balance calls: Predict fills, Probable doesn't
+    mockPublicClient.readContract
+      .mockResolvedValueOnce(100n * 10n ** 18n)  // EOA pre-check
+      .mockResolvedValueOnce(100n * 10n ** 18n)  // Safe pre-check
+      .mockResolvedValueOnce(100n * 10n ** 18n)  // pre-trade EOA snapshot
+      .mockResolvedValueOnce(100n * 10n ** 18n)  // pre-trade Safe snapshot
+      .mockResolvedValueOnce(50n * 10n ** 18n)   // post-trade EOA → Predict filled
+      .mockResolvedValueOnce(100n * 10n ** 18n); // post-trade Safe → Probable not filled
+
+    // Predict placement succeeds
+    vi.mocked(clientB.placeOrder).mockResolvedValueOnce({ success: true, orderId: "predict-1" });
+    // Probable placement succeeds
+    vi.mocked(clientA.placeOrder).mockResolvedValueOnce({ success: true, orderId: "probable-1" });
+
+    // All 3 unwind attempts on clientB fail (success: false)
+    vi.mocked(clientB.placeOrder)
+      .mockResolvedValueOnce({ success: false, error: "rejected-1" })   // unwind attempt 1
+      .mockResolvedValueOnce({ success: false, error: "rejected-2" })   // unwind attempt 2
+      .mockResolvedValueOnce({ success: false, error: "rejected-3" });  // unwind attempt 3
+
+    const promise = executor.executeBest(opp, 100_000_000n);
+    // Advance past: 3s Predict wait + 3s Probable wait + unwind retries
+    await vi.advanceTimersByTimeAsync(15_000);
+    const result = await promise;
+
+    expect(result).toBeDefined();
+    expect(result!.status).toBe("PARTIAL");
+    // All unwind orders rejected (systematic) — executor stays paused
+    expect(executor.isPaused()).toBe(true);
+    // All 3 unwind attempts should have been made (plus the 2 original orders)
+    // calls: [0]=Predict, [1]=Probable, [2..4]=unwind attempts (but Probable is on clientA)
+    // clientB calls: [0]=Predict, [1..3]=3 unwind attempts
+    expect(vi.mocked(clientB.placeOrder).mock.calls.length).toBe(4); // 1 predict + 3 unwinds
+  });
+
+  it("returns undefined when sizeUsdt is below minTradeSize", async () => {
+    // minTradeSize = 3_000_000n → minSizeUsdt = 3 USDT
+    // maxPositionSize = 4_000_000n → sizeUsdt = 4/2 = 2 USDT
+    // 2 < 3 → should return undefined
+    const config = { ...mockConfig, dryRun: false, maxPositionSize: 4_000_000n };
+    const executor = new Executor(
+      undefined,
+      config,
+      mockPublicClient,
+      { probable: clientA, predict: clientB },
+      createMetaResolvers(),
+      undefined,
+      3_000_000n, // minTradeSize
+    );
+
+    const opp = createOpportunity();
+    const result = await executor.executeBest(opp, 4_000_000n);
+
+    expect(result).toBeUndefined();
+    // Neither client should have been called
+    expect(clientA.placeOrder).not.toHaveBeenCalled();
+    expect(clientB.placeOrder).not.toHaveBeenCalled();
   });
 });

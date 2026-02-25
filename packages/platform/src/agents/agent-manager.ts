@@ -142,11 +142,13 @@ export class AgentManager {
       { probable: probableClobClient, predict: predictClobClient, probableProxyAddress: params.safeProxyAddress },
       this.quoteStore.getMetaResolvers(),
       walletClient,
+      params.config.minTradeSize * 1_000_000n, // minTradeSize in 6-decimal USDT
     );
 
     const agentConfig: AgentInstanceConfig = {
       minSpreadBps: params.config.minSpreadBps,
       maxPositionSize: params.config.maxTradeSize * 1_000_000n, // Convert human-readable to 6-decimal USDT
+      minTradeSize: params.config.minTradeSize * 1_000_000n, // Convert human-readable to 6-decimal USDT
       scanIntervalMs: 5000,
       executionMode: "clob",
       dailyLossLimit: params.config.dailyLossLimit * 1_000_000n, // Convert human-readable to 6-decimal USDT

@@ -195,7 +195,7 @@ async function main() {
       signature: signed.signature,
     },
     owner: safeAddress,
-    orderType: "FOK",
+    orderType: "GTC", // GTC for unwind path (sits on book, not instant FOK)
   };
 
   // 6. Place order with L2 HMAC auth

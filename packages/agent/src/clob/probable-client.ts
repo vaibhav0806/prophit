@@ -350,7 +350,7 @@ export class ProbableClobClient implements ClobClient {
           signature: signed.signature,
         },
         owner: maker,
-        orderType: "FOK",
+        orderType: params.isFillOrKill === false ? "GTC" : "FOK",
       }
 
       log.info("Probable order built", {

@@ -116,7 +116,14 @@ export class ScannerService {
         console.warn("[Scanner] Failed providers:", failedProviders);
       }
 
-      this.quoteStore.update(allQuotes);
+      // Collect metadata resolvers from providers
+      const metaResolvers = new Map<string, any>();
+      for (const provider of this.providers) {
+        if ("getMarketMeta" in provider && typeof (provider as any).getMarketMeta === "function") {
+          metaResolvers.set(provider.name, provider);
+        }
+      }
+      this.quoteStore.update(allQuotes, metaResolvers);
       console.log(`[Scanner] Fetched ${allQuotes.length} quotes`);
     } catch (err) {
       console.error("[Scanner] Scan error:", err);

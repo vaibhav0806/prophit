@@ -10,7 +10,6 @@ import { createConfigRoutes } from "./routes/config.js";
 import { rateLimit } from "./middleware/rate-limit.js";
 import type { Database } from "@prophit/shared/db";
 import type { AgentManager } from "../agents/agent-manager.js";
-import type { KeyVault } from "../wallets/key-vault.js";
 import type { DepositWatcher } from "../wallets/deposit-watcher.js";
 import type { WithdrawalProcessor } from "../wallets/withdrawal.js";
 import type { QuoteStore } from "../scanner/quote-store.js";
@@ -26,10 +25,11 @@ export type AuthEnv = {
 export interface ServerDeps {
   db: Database;
   agentManager: AgentManager;
-  keyVault: KeyVault;
   depositWatcher: DepositWatcher;
   withdrawalProcessor: WithdrawalProcessor;
   quoteStore: QuoteStore;
+  rpcUrl: string;
+  chainId: number;
 }
 
 export function createPlatformServer(deps: ServerDeps): Hono {
@@ -69,7 +69,7 @@ export function createPlatformServer(deps: ServerDeps): Hono {
   // Health check
   app.get("/api/health", (c) => c.json({ ok: true, timestamp: Date.now() }));
 
-  // Protected routes (require JWT)
+  // Protected routes (require Privy token)
   const protectedRoutes = new Hono();
   protectedRoutes.use("*", authMiddleware);
 
@@ -85,14 +85,14 @@ export function createPlatformServer(deps: ServerDeps): Hono {
 
   protectedRoutes.route("/api/wallet", createWalletRoutes({
     db: deps.db,
-    keyVault: deps.keyVault,
     depositWatcher: deps.depositWatcher,
     withdrawalProcessor: deps.withdrawalProcessor,
   }));
   protectedRoutes.route("/api/agent", createAgentRoutes({
     db: deps.db,
     agentManager: deps.agentManager,
-    keyVault: deps.keyVault,
+    rpcUrl: deps.rpcUrl,
+    chainId: deps.chainId,
   }));
   protectedRoutes.route("/api/trades", createTradeRoutes(deps.db));
   protectedRoutes.route("/api/me", createConfigRoutes(deps.db));

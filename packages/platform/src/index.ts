@@ -4,9 +4,9 @@ import { createDb } from "@prophit/shared/db";
 import { ScannerService } from "./scanner/service.js";
 import { QuoteStore } from "./scanner/quote-store.js";
 import { AgentManager } from "./agents/agent-manager.js";
-import { KeyVault } from "./wallets/key-vault.js";
 import { DepositWatcher } from "./wallets/deposit-watcher.js";
 import { WithdrawalProcessor } from "./wallets/withdrawal.js";
+import { privyClient } from "./auth/privy.js";
 import { createPlatformServer } from "./api/server.js";
 
 function requireEnv(name: string): string {
@@ -41,12 +41,6 @@ const platformConfig = {
 const databaseUrl = requireEnv("DATABASE_URL");
 const db = createDb(databaseUrl);
 
-const keyVault = new KeyVault(
-  db,
-  requireEnv("ENCRYPTION_SECRET"),
-  requireEnv("HD_SEED"),
-);
-
 const quoteStore = new QuoteStore();
 const scanner = new ScannerService(scannerConfig, quoteStore);
 const agentManager = new AgentManager(quoteStore, platformConfig);
@@ -59,8 +53,7 @@ const depositWatcher = new DepositWatcher({
 
 const withdrawalProcessor = new WithdrawalProcessor({
   db,
-  keyVault,
-  rpcUrl: scannerConfig.rpcUrl,
+  privyClient,
   chainId: scannerConfig.chainId,
 });
 
@@ -75,10 +68,11 @@ async function main() {
   const app = createPlatformServer({
     db,
     agentManager,
-    keyVault,
     depositWatcher,
     withdrawalProcessor,
     quoteStore,
+    rpcUrl: platformConfig.rpcUrl,
+    chainId: platformConfig.chainId,
   });
 
   serve({ fetch: app.fetch, port }, (info) => {

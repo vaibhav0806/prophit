@@ -7,12 +7,18 @@ import type { AuthEnv } from "../server.js";
 export function createConfigRoutes(db: Database): Hono<AuthEnv> {
   const app = new Hono<AuthEnv>();
 
-  // GET /api/me - User profile + config
+  // GET /api/me - User profile + config (find-or-create user)
   app.get("/", async (c) => {
     const userId = c.get("userId") as string;
+    const walletAddress = c.get("walletAddress") as string;
 
-    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-    if (!user) return c.json({ error: "User not found" }, 404);
+    let [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!user) {
+      [user] = await db
+        .insert(users)
+        .values({ id: userId, walletAddress })
+        .returning();
+    }
 
     const [config] = await db.select().from(userConfigs).where(eq(userConfigs.userId, userId)).limit(1);
 

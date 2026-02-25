@@ -1,17 +1,22 @@
 import { Hono } from "hono";
+import { createPublicClient, createWalletClient, http, defineChain } from "viem";
 import type { Database } from "@prophit/shared/db";
-import { userConfigs } from "@prophit/shared/db";
+import { userConfigs, trades, tradingWallets } from "@prophit/shared/db";
 import { eq } from "drizzle-orm";
 import type { AgentManager } from "../../agents/agent-manager.js";
-import type { KeyVault } from "../../wallets/key-vault.js";
+import { getOrCreateWallet } from "../../wallets/privy-wallet.js";
+import { createPrivyAccount } from "../../wallets/privy-account.js";
+import { getOrCreateProbableProxy } from "../../wallets/safe-deployer.js";
 import type { AuthEnv } from "../server.js";
+import type { ClobPosition } from "@prophit/agent/src/types.js";
 
 export function createAgentRoutes(params: {
   db: Database;
   agentManager: AgentManager;
-  keyVault: KeyVault;
+  rpcUrl: string;
+  chainId: number;
 }): Hono<AuthEnv> {
-  const { db, agentManager, keyVault } = params;
+  const { db, agentManager, rpcUrl, chainId } = params;
   const app = new Hono<AuthEnv>();
 
   // POST /api/agent/start - Start user's trading agent
@@ -36,17 +41,71 @@ export function createAgentRoutes(params: {
       return c.json({ error: "Agent is already running" }, 409);
     }
 
-    // Get private key
-    const privateKey = await keyVault.getPrivateKey(userId);
-    if (!privateKey) {
-      return c.json({ error: "No trading wallet found. Please deposit first." }, 400);
+    // Get wallet info from Privy
+    const { walletId, address } = await getOrCreateWallet(userId);
+
+    // Fetch or deploy Gnosis Safe proxy
+    let safeProxyAddress: `0x${string}` | undefined;
+    const [wallet] = await db.select().from(tradingWallets).where(eq(tradingWallets.userId, userId)).limit(1);
+
+    if (wallet?.safeProxyAddress) {
+      safeProxyAddress = wallet.safeProxyAddress as `0x${string}`;
+      console.log(`[Agent] Using existing Safe proxy ${safeProxyAddress} for user ${userId}`);
+    } else if (wallet) {
+      try {
+        console.log(`[Agent] Deploying Gnosis Safe proxy for user ${userId}...`);
+        const chain = defineChain({
+          id: chainId,
+          name: chainId === 56 ? "BNB Smart Chain" : "prophit-chain",
+          nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
+          rpcUrls: { default: { http: [rpcUrl] } },
+        });
+        const account = createPrivyAccount(walletId, address as `0x${string}`);
+        const publicClient = createPublicClient({ chain, transport: http(rpcUrl, { timeout: 30_000 }) });
+        const walletClient = createWalletClient({ account, chain, transport: http(rpcUrl, { timeout: 30_000 }) });
+
+        safeProxyAddress = await getOrCreateProbableProxy(walletClient, publicClient, address as `0x${string}`, chain);
+
+        await db.update(tradingWallets)
+          .set({ safeProxyAddress })
+          .where(eq(tradingWallets.userId, userId));
+
+        console.log(`[Agent] Safe proxy deployed at ${safeProxyAddress} for user ${userId}`);
+      } catch (err) {
+        console.error(`[Agent] Safe deployment failed for user ${userId}:`, err);
+        return c.json({ error: "Failed to deploy Safe proxy wallet" }, 500);
+      }
     }
 
     // Create and start agent
     try {
+      const onTradeExecuted = async (trade: ClobPosition) => {
+        try {
+          await db.insert(trades).values({
+            id: trade.id,
+            userId,
+            marketId: trade.marketId,
+            status: trade.status,
+            legA: trade.legA as any,
+            legB: trade.legB as any,
+            totalCost: Math.round(trade.totalCost * 100), // Store as cents
+            expectedPayout: Math.round(trade.expectedPayout * 100),
+            spreadBps: trade.spreadBps,
+            pnl: trade.pnl != null ? Math.round(trade.pnl * 100) : null,
+            openedAt: new Date(trade.openedAt),
+            closedAt: trade.closedAt ? new Date(trade.closedAt) : null,
+          });
+          console.log(`[Agent] Trade persisted: ${trade.id} market=${trade.marketId} spread=${trade.spreadBps}bps`);
+        } catch (err) {
+          console.error(`[Agent] Failed to persist trade ${trade.id}:`, err);
+        }
+      };
+
       await agentManager.createAgent({
         userId,
-        privateKey,
+        walletId,
+        walletAddress: address as `0x${string}`,
+        safeProxyAddress,
         config: {
           minTradeSize: config.minTradeSize,
           maxTradeSize: config.maxTradeSize,
@@ -56,6 +115,7 @@ export function createAgentRoutes(params: {
           dailyLossLimit: config.dailyLossLimit,
           maxResolutionDays: config.maxResolutionDays,
         },
+        onTradeExecuted,
       });
 
       agentManager.startAgent(userId);

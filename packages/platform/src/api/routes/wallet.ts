@@ -2,9 +2,10 @@ import { Hono } from "hono";
 import type { Database } from "@prophit/shared/db";
 import { tradingWallets, withdrawals, deposits } from "@prophit/shared/db";
 import { eq, desc, and, gte, sql } from "drizzle-orm";
-import type { KeyVault } from "../../wallets/key-vault.js";
+import { formatUnits } from "viem";
 import type { DepositWatcher } from "../../wallets/deposit-watcher.js";
 import type { WithdrawalProcessor } from "../../wallets/withdrawal.js";
+import { getOrCreateWallet } from "../../wallets/privy-wallet.js";
 import type { AuthEnv } from "../server.js";
 
 // Daily withdrawal limit in USDT base units (6 decimals: 1000 * 1e6)
@@ -15,28 +16,33 @@ const BNB_USDT_ESTIMATE = 600n;
 
 export function createWalletRoutes(params: {
   db: Database;
-  keyVault: KeyVault;
   depositWatcher: DepositWatcher;
   withdrawalProcessor: WithdrawalProcessor;
 }): Hono<AuthEnv> {
-  const { db, keyVault, depositWatcher, withdrawalProcessor } = params;
+  const { db, depositWatcher, withdrawalProcessor } = params;
   const app = new Hono<AuthEnv>();
 
   // GET /api/wallet - Get user's deposit address and balances
   app.get("/", async (c) => {
     const userId = c.get("userId") as string;
 
-    // Get or create trading wallet
+    // Get user's embedded wallet from Privy
+    const { address, walletId } = await getOrCreateWallet(userId);
+
+    // Ensure trading wallet record exists in DB (for deposit watcher)
     let [wallet] = await db.select().from(tradingWallets).where(eq(tradingWallets.userId, userId)).limit(1);
 
     if (!wallet) {
-      // Auto-create wallet for new users
-      await keyVault.createWalletForUser(userId);
-      [wallet] = await db.select().from(tradingWallets).where(eq(tradingWallets.userId, userId)).limit(1);
+      [wallet] = await db.insert(tradingWallets).values({
+        id: crypto.randomUUID(),
+        userId,
+        address: address.toLowerCase(),
+        privyWalletId: walletId,
+      }).returning();
     }
 
     // Get live balances
-    const balances = await depositWatcher.getBalances(wallet.address);
+    const balances = await depositWatcher.getBalances(address);
 
     // Get deposit history
     const userDeposits = await db.select().from(deposits)
@@ -45,13 +51,13 @@ export function createWalletRoutes(params: {
       .limit(20);
 
     return c.json({
-      address: wallet.address,
-      usdtBalance: balances.usdtBalance.toString(),
-      bnbBalance: balances.bnbBalance.toString(),
+      address,
+      usdtBalance: formatUnits(balances.usdtBalance, 18),
+      bnbBalance: formatUnits(balances.bnbBalance, 18),
       deposits: userDeposits.map(d => ({
         id: d.id,
         token: d.token,
-        amount: d.amount.toString(),
+        amount: formatUnits(d.amount, 18),
         confirmedAt: d.confirmedAt.toISOString(),
       })),
     });
@@ -88,12 +94,8 @@ export function createWalletRoutes(params: {
 
     // --- Balance check ---
 
-    const [wallet] = await db.select().from(tradingWallets).where(eq(tradingWallets.userId, userId)).limit(1);
-    if (!wallet) {
-      return c.json({ error: "No wallet found" }, 400);
-    }
-
-    const balances = await depositWatcher.getBalances(wallet.address);
+    const { address } = await getOrCreateWallet(userId);
+    const balances = await depositWatcher.getBalances(address);
     const available = body.token === "USDT" ? balances.usdtBalance : balances.bnbBalance;
 
     if (amount > available) {

@@ -1,5 +1,4 @@
 import { createPublicClient, createWalletClient, http, defineChain } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
 import { AgentInstance } from "@prophit/agent/src/agent-instance.js";
 import type { AgentInstanceConfig, QuoteStore } from "@prophit/agent/src/agent-instance.js";
 import { Executor } from "@prophit/agent/src/execution/executor.js";
@@ -7,6 +6,7 @@ import { ProbableClobClient } from "@prophit/agent/src/clob/probable-client.js";
 import { PredictClobClient } from "@prophit/agent/src/clob/predict-client.js";
 import type { ClobPosition } from "@prophit/agent/src/types.js";
 import type { UserAgentConfig } from "@prophit/shared/types";
+import { createPrivyAccount } from "../wallets/privy-account.js";
 
 const BSC_USDT = "0x55d398326f99059fF775485246999027B3197955" as `0x${string}`;
 
@@ -35,7 +35,7 @@ export interface PlatformConfig {
 interface ManagedAgent {
   userId: string;
   instance: AgentInstance;
-  privateKey: `0x${string}`;
+  walletId: string;
   walletAddress: `0x${string}`;
 }
 
@@ -51,7 +51,8 @@ export class AgentManager {
 
   async createAgent(params: {
     userId: string;
-    privateKey: `0x${string}`;
+    walletId: string;
+    walletAddress: `0x${string}`;
     config: UserAgentConfig;
     safeProxyAddress?: `0x${string}`;
     onTradeExecuted?: (trade: ClobPosition) => void;
@@ -67,7 +68,7 @@ export class AgentManager {
       rpcUrls: { default: { http: [this.platformConfig.rpcUrl] } },
     });
 
-    const account = privateKeyToAccount(params.privateKey);
+    const account = createPrivyAccount(params.walletId, params.walletAddress);
     const publicClient = createPublicClient({
       chain,
       transport: http(this.platformConfig.rpcUrl, { timeout: 10_000 }),
@@ -104,14 +105,22 @@ export class AgentManager {
     // Initialize CLOB auth
     const clobInitPromise = (async () => {
       try {
+        console.log(`[AgentManager] Step 1: Probable authenticate...`);
         await probableClobClient.authenticate();
+        console.log(`[AgentManager] Step 2: Probable fetchNonce...`);
         await probableClobClient.fetchNonce();
         if (predictClobClient) {
+          console.log(`[AgentManager] Step 3: Predict authenticate...`);
           await predictClobClient.authenticate();
+          console.log(`[AgentManager] Step 4: Predict fetchNonce...`);
           await predictClobClient.fetchNonce();
         }
-        await probableClobClient.ensureApprovals(publicClient, params.config.maxTradeSize);
-        if (predictClobClient) await predictClobClient.ensureApprovals(publicClient);
+        console.log(`[AgentManager] Step 5: Probable ensureApprovals...`);
+        await probableClobClient.ensureApprovals(publicClient, params.safeProxyAddress ? params.config.maxTradeSize * 1_000_000n : undefined);
+        if (predictClobClient) {
+          console.log(`[AgentManager] Step 6: Predict ensureApprovals...`);
+          await predictClobClient.ensureApprovals(publicClient);
+        }
         console.log(`[AgentManager] CLOB clients initialized for user ${params.userId}`);
       } catch (err) {
         console.error(`[AgentManager] CLOB init failed for user ${params.userId}:`, err);
@@ -131,16 +140,16 @@ export class AgentManager {
       } as any, // Config subset needed by Executor
       publicClient,
       { probable: probableClobClient, predict: predictClobClient, probableProxyAddress: params.safeProxyAddress },
-      new Map(),
+      this.quoteStore.getMetaResolvers(),
       walletClient,
     );
 
     const agentConfig: AgentInstanceConfig = {
       minSpreadBps: params.config.minSpreadBps,
-      maxPositionSize: params.config.maxTradeSize,
+      maxPositionSize: params.config.maxTradeSize * 1_000_000n, // Convert human-readable to 6-decimal USDT
       scanIntervalMs: 5000,
       executionMode: "clob",
-      dailyLossLimit: params.config.dailyLossLimit,
+      dailyLossLimit: params.config.dailyLossLimit * 1_000_000n, // Convert human-readable to 6-decimal USDT
       dryRun: this.platformConfig.dryRun,
     };
 
@@ -151,7 +160,7 @@ export class AgentManager {
           address: BSC_USDT,
           abi: erc20BalanceOfAbi,
           functionName: "balanceOf",
-          args: [account.address],
+          args: [params.walletAddress],
         });
         return usdtBalance / BigInt(1e12); // 18-dec to 6-dec
       } catch {
@@ -179,8 +188,8 @@ export class AgentManager {
     this.agents.set(params.userId, {
       userId: params.userId,
       instance,
-      privateKey: params.privateKey,
-      walletAddress: account.address,
+      walletId: params.walletId,
+      walletAddress: params.walletAddress,
     });
 
     return instance;

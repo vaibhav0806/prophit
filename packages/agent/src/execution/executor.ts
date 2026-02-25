@@ -834,7 +834,7 @@ export class Executor {
 
     for (let attempt = 0; attempt < discounts.length; attempt++) {
       const discount = discounts[attempt];
-      const price = Math.round(leg.price * (1 - discount) * 10000) / 10000; // 4dp precision
+      const price = Math.round(leg.price * (1 - discount) * 1000) / 1000; // 3dp — Predict max precision
 
       log.info("Attempting to unwind filled leg", {
         platform: leg.platform, tokenId: leg.tokenId, side: "SELL", price, size,

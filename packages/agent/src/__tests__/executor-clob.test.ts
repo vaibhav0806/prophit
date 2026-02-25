@@ -860,7 +860,7 @@ describe("integration: fixed execution flow", () => {
     expect(result).toBeUndefined();
   });
 
-  it("places unwind SELL at correct low-price precision (0.014 → ~0.0133)", async () => {
+  it("places unwind SELL at correct low-price precision (0.014 → ~0.013)", async () => {
     vi.useFakeTimers();
 
     // Set up an executor with proxy
@@ -905,7 +905,7 @@ describe("integration: fixed execution flow", () => {
 
     // Now the Predict-filled, Probable-not-filled path triggers attemptUnwind on predictClient (clientB).
     // The unwind will SELL on clientB with leg price = 0.014 (noPriceB).
-    // First unwind attempt: price = round(0.014 * 0.95 * 10000) / 10000 = round(133) / 10000 = 0.0133
+    // First unwind attempt: price = round(0.014 * 0.95 * 1000) / 1000 = round(13.3) / 1000 = 0.013
     // Mock the unwind placeOrder on clientB to succeed, then poll to FILLED
     vi.mocked(clientB.placeOrder)
       .mockResolvedValueOnce({ success: true, orderId: "unwind-1" }); // unwind attempt 1
@@ -928,8 +928,8 @@ describe("integration: fixed execution flow", () => {
     expect(allClientBCalls.length).toBeGreaterThanOrEqual(2);
     const unwindCall = allClientBCalls[1][0] as PlaceOrderParams;
     expect(unwindCall.side).toBe("SELL");
-    // price = round(0.014 * 0.95 * 10000) / 10000 = 0.0133
-    expect(unwindCall.price).toBeCloseTo(0.0133, 4);
+    // price = round(0.014 * 0.95 * 1000) / 1000 = 0.013
+    expect(unwindCall.price).toBeCloseTo(0.013, 3);
     // Crucially: NOT rounded down to 0.01
     expect(unwindCall.price).toBeGreaterThan(0.01);
   });

@@ -12,6 +12,14 @@ import {
   ZERO_ADDRESS,
 } from "./types.js";
 
+/** Euclidean GCD for BigInt (used for amount precision alignment). */
+function gcd(a: bigint, b: bigint): bigint {
+  if (a < 0n) a = -a;
+  if (b < 0n) b = -b;
+  while (b > 0n) { [a, b] = [b, a % b]; }
+  return a;
+}
+
 /**
  * Build a ClobOrder from human-readable params.
  *
@@ -98,14 +106,28 @@ export function buildOrder(params: {
   // so that takerAmount == priceWei * makerAmount / 1e18 holds exactly.
   // Without this, independent computation of sizeRaw and sharesRaw introduces
   // BigInt truncation mismatches that Predict rejects (NonMatchingAmountsError).
+  //
+  // Additionally, Predict requires amounts to be multiples of 1e10
+  // (InvalidPrecisionError). Quantize the independent amount to a quantum that
+  // guarantees the derived amount is also 1e10-aligned:
+  //   quantum = (1e8 / gcd(priceInt, 1e8)) * 1e10
   if (!params.quantize && slipBps === 0n && scaleBig >= 1_000_000_000_000_000_000n) {
     // Two-step multiply avoids IEEE 754 precision loss on price * 1e18
-    const priceWei = BigInt(Math.round(price * 1e8)) * (scaleBig / 100_000_000n);
+    const priceInt = BigInt(Math.round(price * 1e8));
+    const priceWei = priceInt * (scaleBig / 100_000_000n);
+    const UNIT = 100_000_000n; // 1e8
+    const g = gcd(priceInt, UNIT);
+    const quantum = (UNIT / g) * (scaleBig / UNIT); // always >= 1e10
+
     if (isBuy) {
       // BUY: takerAmount = shares (independent), makerAmount = shares * price / scale
+      takerAmount = (takerAmount / quantum) * quantum;
+      if (takerAmount === 0n) takerAmount = quantum;
       makerAmount = takerAmount * priceWei / scaleBig;
     } else {
       // SELL: makerAmount = shares (independent), takerAmount = shares * price / scale
+      makerAmount = (makerAmount / quantum) * quantum;
+      if (makerAmount === 0n) makerAmount = quantum;
       takerAmount = makerAmount * priceWei / scaleBig;
     }
   }

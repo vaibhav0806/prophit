@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { createPublicClient, createWalletClient, http, defineChain } from "viem";
 import type { Database } from "@prophit/shared/db";
 import { userConfigs, trades, tradingWallets } from "@prophit/shared/db";
-import { eq } from "drizzle-orm";
+import { eq, and, gt } from "drizzle-orm";
 import type { AgentManager } from "../../agents/agent-manager.js";
 import { getOrCreateWallet } from "../../wallets/privy-wallet.js";
 import { createPrivyAccount } from "../../wallets/privy-account.js";
@@ -77,6 +77,34 @@ export function createAgentRoutes(params: {
       }
     }
 
+    // Seed cooldowns from recent PARTIAL trades (survive restarts)
+    const COOLDOWN_MS = 30 * 60 * 1000; // must match Executor.MARKET_COOLDOWN_MS
+    const initialCooldowns = new Map<string, number>();
+    try {
+      const cutoff = new Date(Date.now() - COOLDOWN_MS);
+      const partialTrades = await db
+        .select({ marketId: trades.marketId, openedAt: trades.openedAt })
+        .from(trades)
+        .where(and(
+          eq(trades.userId, userId),
+          eq(trades.status, "PARTIAL"),
+          gt(trades.openedAt, cutoff),
+        ));
+      const now = Date.now();
+      for (const t of partialTrades) {
+        const elapsed = now - t.openedAt.getTime();
+        const remaining = COOLDOWN_MS - elapsed;
+        if (remaining > 0) {
+          initialCooldowns.set(t.marketId, now + remaining);
+        }
+      }
+      if (initialCooldowns.size > 0) {
+        console.log(`[Agent] Seeded ${initialCooldowns.size} market cooldown(s) from recent PARTIAL trades`);
+      }
+    } catch (err) {
+      console.warn("[Agent] Failed to seed cooldowns from DB, starting fresh:", err);
+    }
+
     // Create and start agent
     try {
       const onTradeExecuted = async (trade: ClobPosition) => {
@@ -116,6 +144,7 @@ export function createAgentRoutes(params: {
           maxResolutionDays: config.maxResolutionDays,
         },
         onTradeExecuted,
+        initialCooldowns,
       });
 
       agentManager.startAgent(userId);

@@ -56,6 +56,7 @@ export class AgentManager {
     config: UserAgentConfig;
     safeProxyAddress?: `0x${string}`;
     onTradeExecuted?: (trade: ClobPosition) => void;
+    initialCooldowns?: Map<string, number>;
   }): Promise<AgentInstance> {
     if (this.agents.has(params.userId)) {
       throw new Error(`Agent already exists for user ${params.userId}`);
@@ -143,6 +144,7 @@ export class AgentManager {
       this.quoteStore.getMetaResolvers(),
       walletClient,
       params.config.minTradeSize * 1_000_000n, // minTradeSize in 6-decimal USDT
+      params.initialCooldowns,
     );
 
     const agentConfig: AgentInstanceConfig = {

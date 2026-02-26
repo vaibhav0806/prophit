@@ -667,6 +667,46 @@ export class PredictClobClient implements ClobClient {
     }
   }
 
+  async getAvailableBalance(tokenId: string): Promise<number> {
+    try {
+      const jwt = await this.ensureAuth();
+      const account = this.walletClient.account;
+      if (!account) return 0;
+
+      const res = await fetch(
+        `${this.apiBase}/v1/positions?signer=${getAddress(account.address)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${jwt}`,
+            "x-api-key": this.apiKey,
+          },
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+
+      if (!res.ok) {
+        log.warn("Predict getAvailableBalance failed", { tokenId, status: res.status });
+        return 0;
+      }
+
+      const json = await res.json();
+      const positions = Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : [];
+
+      for (const pos of positions) {
+        if (String(pos.tokenId ?? pos.token_id) === tokenId) {
+          // amountAvailable is in 18-decimal
+          const raw = pos.amountAvailable ?? pos.amount_available ?? "0";
+          return Number(BigInt(raw)) / 1e18;
+        }
+      }
+
+      return 0;
+    } catch (err) {
+      log.warn("Predict getAvailableBalance error", { tokenId, error: String(err) });
+      return 0;
+    }
+  }
+
   async ensureApprovals(publicClient: PublicClient): Promise<void> {
     const account = this.walletClient.account;
     if (!account) throw new Error("WalletClient has no account");

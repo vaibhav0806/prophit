@@ -63,6 +63,9 @@ export interface ClobClient {
 
   /** Ensure ERC-1155 + USDT approvals for the exchange */
   ensureApprovals(publicClient: PublicClient, fundingThreshold?: bigint): Promise<void>;
+
+  /** Get available (unlocked) balance for a token — excludes shares locked in open orders */
+  getAvailableBalance?(tokenId: string): Promise<number>;
 }
 
 // EIP-712 domain for CTF Exchange orders

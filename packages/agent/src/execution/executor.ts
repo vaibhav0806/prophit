@@ -96,6 +96,10 @@ export class Executor {
   private consecutiveVerificationFailures = 0;
   private static readonly MAX_VERIFICATION_FAILURES = 2;
 
+  // Market-level cooldown: markets where Probable FOK failed are temporarily blocked
+  private marketCooldowns = new Map<string, number>();
+  private static readonly MARKET_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
+
   constructor(
     vaultClient: VaultClient | undefined,
     config: Config,
@@ -104,6 +108,7 @@ export class Executor {
     metaResolvers?: Map<string, MarketMetaResolver>,
     walletClient?: WalletClient,
     minTradeSize?: bigint,
+    initialCooldowns?: Map<string, number>,
   ) {
     this.vaultClient = vaultClient ?? null;
     this.config = config;
@@ -112,6 +117,11 @@ export class Executor {
     this.metaResolvers = metaResolvers ?? new Map();
     this.walletClient = walletClient ?? null;
     this.minTradeSize = minTradeSize;
+    if (initialCooldowns) {
+      for (const [k, v] of initialCooldowns) {
+        this.marketCooldowns.set(k, v);
+      }
+    }
   }
 
   isPaused(): boolean {
@@ -250,6 +260,20 @@ export class Executor {
   // ---------------------------------------------------------------------------
 
   private async executeClob(opportunity: ArbitOpportunity, maxPositionSize: bigint): Promise<ClobPosition | void> {
+    // Check market-level cooldown (Probable FOK failures)
+    const marketKey = opportunity.marketId;
+    const cooldownExpiry = this.marketCooldowns.get(marketKey);
+    if (cooldownExpiry && Date.now() < cooldownExpiry) {
+      log.info("CLOB: market on cooldown (previous Probable failure), skipping", {
+        marketId: marketKey,
+        cooldownRemainingMs: cooldownExpiry - Date.now(),
+      });
+      return;
+    }
+    if (cooldownExpiry && Date.now() >= cooldownExpiry) {
+      this.marketCooldowns.delete(marketKey);
+    }
+
     const clientA = this.getClobClient(opportunity.protocolA);
     const clientB = this.getClobClient(opportunity.protocolB);
 
@@ -351,11 +375,11 @@ export class Executor {
           functionName: "balanceOf",
           args: [proxyAddr],
         });
-        const requiredWei = BigInt(Math.round(sizeUsdt * 1.0175 * 1e6)) * 10n ** 12n;
+        const FEE_MULTIPLIER = 1.02; // 2% buffer covers Probable 1.75% fee + rounding
+        const requiredWei = BigInt(Math.round(sizeUsdt * FEE_MULTIPLIER * 1e6)) * 10n ** 12n;
         if (safeBalance < requiredWei) {
-          // Cap size to Safe balance instead of skipping entirely
-          // Floor to 8dp to prevent Math.round(x*1e8) in signing.ts from rounding past actual balance
-          const safeUsdt = Math.floor(Number(safeBalance) / 1e18 * 1e8) / 1e8;
+          // Cap size to Safe balance divided by fee multiplier so the order + fees fit
+          const safeUsdt = Math.floor(Number(safeBalance) / 1e18 / FEE_MULTIPLIER * 1e8) / 1e8;
           if (safeUsdt >= minSizeUsdt) {
             log.info("CLOB: capping trade size to Safe balance for Probable leg", {
               safe: proxyAddr,
@@ -591,6 +615,9 @@ export class Executor {
         predictOrderId: predictResult.orderId,
       });
 
+      // Cooldown this market to prevent repeat failures
+      this.marketCooldowns.set(marketKey, Date.now() + Executor.MARKET_COOLDOWN_MS);
+
       const position: ClobPosition = {
         id: `clob-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         marketId: opportunity.marketId,
@@ -672,6 +699,9 @@ export class Executor {
       log.error("PARTIAL FILL: Predict filled but Probable FOK did not — executor paused", {
         positionId: position.id,
       });
+
+      // Cooldown this market to prevent repeat failures
+      this.marketCooldowns.set(marketKey, Date.now() + Executor.MARKET_COOLDOWN_MS);
 
       // Attempt to unwind Predict leg
       const predictLeg = predictIsA ? position.legA : position.legB;
@@ -828,16 +858,44 @@ export class Executor {
   }
 
   private async attemptUnwind(client: ClobClient, leg: ClobLeg): Promise<void> {
-    const size = leg.filledSize > 0 ? leg.filledSize : leg.size;
+    const sizeUsdt = leg.filledSize > 0 ? leg.filledSize : leg.size;
+    // Compute actual shares held: we bought at leg.price, so shares = USDT / buyPrice
+    let actualShares = sizeUsdt / leg.price;
+
+    // Check available (unlocked) balance — shares locked in open orders can't be sold
+    if (client.getAvailableBalance) {
+      try {
+        const available = await client.getAvailableBalance(leg.tokenId);
+        if (available <= 0) {
+          log.error("Unwind: no available shares (all locked in open orders)", {
+            platform: leg.platform, tokenId: leg.tokenId, expected: actualShares, available,
+          });
+          return;
+        }
+        if (available < actualShares) {
+          log.warn("Unwind: capping shares to available balance", {
+            platform: leg.platform, tokenId: leg.tokenId, expected: actualShares, available,
+          });
+          actualShares = available;
+        }
+      } catch (err) {
+        log.warn("Unwind: getAvailableBalance failed, proceeding with expected shares", { error: String(err) });
+      }
+    }
+
     const discounts = [0.05, 0.10, 0.20]; // progressively more aggressive
-    let anyPlaced = false; // track if any order reached the matching engine
+    let anyReachedBook = false; // true only if an order was confirmed live on the book
 
     for (let attempt = 0; attempt < discounts.length; attempt++) {
       const discount = discounts[attempt];
       const price = Math.round(leg.price * (1 - discount) * 1000) / 1000; // 3dp — Predict max precision
+      // SELL size = actualShares * discountedPrice so buildOrder computes
+      // shares = size/price = actualShares (not sizeUsdt/price which exceeds holdings)
+      const size = Math.round(actualShares * price * 1e8) / 1e8;
 
       log.info("Attempting to unwind filled leg", {
         platform: leg.platform, tokenId: leg.tokenId, side: "SELL", price, size,
+        actualShares, sizeUsdt,
         attempt: attempt + 1, maxAttempts: discounts.length,
       });
 
@@ -854,12 +912,12 @@ export class Executor {
           continue; // try next discount
         }
 
-        anyPlaced = true;
         log.info("Unwind order placed, monitoring for fill", { orderId: result.orderId, attempt: attempt + 1 });
 
         // Poll for unwind order fill
         const deadline = Date.now() + UNWIND_POLL_TIMEOUT_MS;
         let filled = false;
+        let sawLive = false; // track if order was confirmed on the book
         while (Date.now() < deadline) {
           await new Promise((r) => setTimeout(r, UNWIND_POLL_INTERVAL_MS));
           try {
@@ -871,9 +929,12 @@ export class Executor {
               this.paused = false;
               return;
             }
+            if (status.status === "OPEN" || status.status === "PARTIAL") {
+              sawLive = true; // order confirmed on the book
+            }
             if (status.status === "CANCELLED" || status.status === "EXPIRED") {
               log.warn("Unwind order cancelled/expired, will retry with deeper discount", {
-                orderId: result.orderId, status: status.status, attempt: attempt + 1,
+                orderId: result.orderId, status: status.status, sawLive, attempt: attempt + 1,
               });
               break; // break inner poll loop, try next discount
             }
@@ -882,8 +943,11 @@ export class Executor {
           }
         }
 
+        // Only count as "reached book" if we actually confirmed it was live
+        if (sawLive) anyReachedBook = true;
+
         if (!filled) {
-          log.warn("Unwind attempt did not fill", { attempt: attempt + 1, price });
+          log.warn("Unwind attempt did not fill", { attempt: attempt + 1, price, sawLive });
         }
       } catch (err) {
         log.error("Unwind attempt failed", {
@@ -892,17 +956,17 @@ export class Executor {
       }
     }
 
-    // Distinguish systematic errors (all orders rejected at API level = code bug)
-    // from transient failures (orders placed but didn't fill = liquidity/timing).
+    // Distinguish systematic errors (all orders rejected or immediately cancelled)
+    // from transient failures (orders confirmed on the book but didn't fill).
     // Only auto-unpause on transient failures to prevent compounding losses.
-    if (anyPlaced) {
+    if (anyReachedBook) {
       log.error("All unwind attempts exhausted (transient) — auto-unpausing executor. Manual review recommended.", {
-        platform: leg.platform, tokenId: leg.tokenId, size,
+        platform: leg.platform, tokenId: leg.tokenId, sizeUsdt,
       });
       this.paused = false;
     } else {
-      log.error("All unwind orders rejected (systematic) — executor stays paused. Manual intervention required.", {
-        platform: leg.platform, tokenId: leg.tokenId, size,
+      log.error("All unwind orders rejected/immediately cancelled (systematic) — executor stays paused. Manual intervention required.", {
+        platform: leg.platform, tokenId: leg.tokenId, sizeUsdt,
       });
       // this.paused remains true — don't auto-unpause on systematic bugs
     }

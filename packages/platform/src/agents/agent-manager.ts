@@ -4,6 +4,7 @@ import type { AgentInstanceConfig, QuoteStore } from "@prophit/agent/src/agent-i
 import { Executor } from "@prophit/agent/src/execution/executor.js";
 import { ProbableClobClient } from "@prophit/agent/src/clob/probable-client.js";
 import { PredictClobClient } from "@prophit/agent/src/clob/predict-client.js";
+import { OpinionClobClient } from "@prophit/agent/src/clob/opinion-client.js";
 import type { ClobPosition } from "@prophit/agent/src/types.js";
 import type { UserAgentConfig } from "@prophit/shared/types";
 import { createPrivyAccount } from "../wallets/privy-account.js";
@@ -30,6 +31,9 @@ export interface PlatformConfig {
   predictExchangeAddress: `0x${string}`;
   orderExpirationSec: number;
   dryRun: boolean;
+  opinionApiBase?: string;
+  opinionApiKey?: string;
+  opinionExchangeAddress?: `0x${string}`;
 }
 
 interface ManagedAgent {
@@ -103,6 +107,18 @@ export class AgentManager {
         })
       : undefined;
 
+    const opinionClobClient = this.platformConfig.opinionApiKey
+      ? new OpinionClobClient({
+          walletClient,
+          apiBase: this.platformConfig.opinionApiBase!,
+          apiKey: this.platformConfig.opinionApiKey,
+          exchangeAddress: this.platformConfig.opinionExchangeAddress ?? ("0xAD1a38cEc043e70E83a3eC30443dB285ED10D774" as `0x${string}`),
+          chainId: this.platformConfig.chainId,
+          expirationSec: this.platformConfig.orderExpirationSec,
+          dryRun: this.platformConfig.dryRun,
+        })
+      : undefined;
+
     // Initialize CLOB auth
     const clobInitPromise = (async () => {
       try {
@@ -116,11 +132,20 @@ export class AgentManager {
           console.log(`[AgentManager] Step 4: Predict fetchNonce...`);
           await predictClobClient.fetchNonce();
         }
-        console.log(`[AgentManager] Step 5: Probable ensureApprovals...`);
+        if (opinionClobClient) {
+          console.log(`[AgentManager] Step 5: Opinion authenticate...`);
+          await opinionClobClient.authenticate();
+          await opinionClobClient.fetchNonce();
+        }
+        console.log(`[AgentManager] Step 6: Probable ensureApprovals...`);
         await probableClobClient.ensureApprovals(publicClient, params.safeProxyAddress ? params.config.maxTradeSize * 1_000_000n : undefined);
         if (predictClobClient) {
-          console.log(`[AgentManager] Step 6: Predict ensureApprovals...`);
+          console.log(`[AgentManager] Step 7: Predict ensureApprovals...`);
           await predictClobClient.ensureApprovals(publicClient);
+        }
+        if (opinionClobClient) {
+          console.log(`[AgentManager] Step 8: Opinion ensureApprovals...`);
+          await opinionClobClient.ensureApprovals(publicClient);
         }
         console.log(`[AgentManager] CLOB clients initialized for user ${params.userId}`);
       } catch (err) {
@@ -140,7 +165,7 @@ export class AgentManager {
         orderExpirationSec: this.platformConfig.orderExpirationSec,
       } as any, // Config subset needed by Executor
       publicClient,
-      { probable: probableClobClient, predict: predictClobClient, probableProxyAddress: params.safeProxyAddress },
+      { probable: probableClobClient, predict: predictClobClient, opinion: opinionClobClient, probableProxyAddress: params.safeProxyAddress },
       this.quoteStore.getMetaResolvers(),
       walletClient,
       params.config.minTradeSize * 1_000_000n, // minTradeSize in 6-decimal USDT
@@ -183,6 +208,7 @@ export class AgentManager {
       clobClients: {
         probable: probableClobClient,
         predict: predictClobClient,
+        opinion: opinionClobClient,
         probableProxyAddress: params.safeProxyAddress,
       },
       getBalanceForLossCheck,

@@ -1,11 +1,12 @@
 import { log } from "../logger.js";
+import { matchMarkets, compositeSimilarity } from "../matching-engine/index.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export interface DiscoveredMarket {
-  platform: "Probable" | "Predict";
+  platform: "Probable" | "Predict" | "Opinion" | string;
   id: string;
   title: string;
   conditionId: string;
@@ -14,15 +15,32 @@ export interface DiscoveredMarket {
   category?: string;
   hasLiquidity: boolean;
   resolvesAt?: string; // ISO date string when market resolves
+  /** Opinion-specific: marketId used as topicId for order placement */
+  topicId?: string;
+  /** Opinion-specific: 0 = singular binary, non-0 = multi-outcome topic */
+  opinionMarketType?: number;
+  /** Probable/Predict slug (shared, sourced from Probable side) */
+  slug?: string;
 }
 
 export interface MarketMatch {
-  probable: DiscoveredMarket;
-  predict: DiscoveredMarket;
+  platformA: DiscoveredMarket;
+  platformB: DiscoveredMarket;
   matchType: "conditionId" | "templateMatch" | "titleSimilarity";
   similarity: number;
-  probableMapEntry: { probableMarketId: string; conditionId: string; yesTokenId: string; noTokenId: string };
-  predictMapEntry: { predictMarketId: string; yesTokenId: string; noTokenId: string };
+  /** @deprecated use platformA/platformB directly */
+  probable: DiscoveredMarket;
+  /** @deprecated use platformA/platformB directly */
+  predict: DiscoveredMarket;
+  probableMapEntry?: { probableMarketId: string; conditionId: string; yesTokenId: string; noTokenId: string };
+  predictMapEntry?: { predictMarketId: string; yesTokenId: string; noTokenId: string };
+}
+
+export interface OpinionMapEntry {
+  opinionMarketId: string;
+  yesTokenId: string;
+  noTokenId: string;
+  topicId: string;
 }
 
 export interface DiscoveryResult {
@@ -31,9 +49,15 @@ export interface DiscoveryResult {
   predictMarkets: number;
   probableMarketsList: DiscoveredMarket[];
   predictMarketsList: DiscoveredMarket[];
+  opinionMarketsList: DiscoveredMarket[];
   matches: MarketMatch[];
   probableMarketMap: Record<string, { probableMarketId: string; conditionId: string; yesTokenId: string; noTokenId: string }>;
   predictMarketMap: Record<string, { predictMarketId: string; yesTokenId: string; noTokenId: string }>;
+  opinionMarketMap: Record<string, OpinionMapEntry>;
+  /** Maps shared market key → market title (from Predict or best available) */
+  titleMap: Record<string, string>;
+  /** Maps shared market key → per-platform URLs */
+  linkMap: Record<string, { predict?: string; probable?: string; opinion?: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,7 +76,8 @@ interface ProbableEvent {
 interface ProbableMarketRaw {
   id: string;
   question: string;
-  conditionId?: string;
+  condition_id?: string; // snake_case from Probable API
+  conditionId?: string;  // camelCase fallback (some endpoints)
   clobTokenIds: string; // JSON string: '["yesTokenId","noTokenId"]'
   outcomes: string;     // JSON string: '["Yes","No"]'
   tokens: Array<{ token_id: string; outcome: string }>;
@@ -109,87 +134,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/**
- * Normalize a title for comparison: lowercase, strip punctuation, collapse
- * whitespace, trim.
- */
-function normalizeTitle(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^\w\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-const STOP_WORDS = new Set([
-  "will", "the", "a", "an", "by", "be", "of", "in", "to",
-  "and", "or", "is", "it", "at", "on", "for", "has", "have",
-]);
-
-/**
- * Jaccard similarity over word sets.  intersection / union of unique words.
- * Stop words are filtered out so template-heavy titles don't inflate scores.
- */
-function jaccardSimilarity(a: string, b: string): number {
-  const wordsA = new Set(normalizeTitle(a).split(" ").filter((w) => w && !STOP_WORDS.has(w)));
-  const wordsB = new Set(normalizeTitle(b).split(" ").filter((w) => w && !STOP_WORDS.has(w)));
-
-  if (wordsA.size === 0 && wordsB.size === 0) return 1;
-  if (wordsA.size === 0 || wordsB.size === 0) return 0;
-
-  let intersection = 0;
-  for (const w of wordsA) {
-    if (wordsB.has(w)) intersection++;
-  }
-
-  const union = wordsA.size + wordsB.size - intersection;
-  return union === 0 ? 0 : intersection / union;
-}
-
-const SIMILARITY_THRESHOLD = 0.85;
-
-// ---------------------------------------------------------------------------
-// Template extraction — identifies structured market titles and extracts the
-// distinguishing entity/params so template-heavy titles don't false-positive
-// on Jaccard similarity.
-// ---------------------------------------------------------------------------
-
-interface TemplateResult {
-  template: string;
-  entity: string;
-  params: string;
-}
-
-const TEMPLATE_PATTERNS: { name: string; regex: RegExp }[] = [
-  { name: "fdv-above",    regex: /will (.+?) fdv be above \$?([\d.]+[bmk]?)/i },
-  { name: "token-launch", regex: /will (.+?) launch a token by (.+)/i },
-  { name: "price-target", regex: /will (.+?) (?:hit|reach|break) \$?([\d,.]+)/i },
-  { name: "win-comp",     regex: /will (.+?) win (.+)/i },
-  { name: "out-as",       regex: /will (.+?) come out as (.+)/i },
-  { name: "ipo-by",       regex: /will (.+?) ipo by (.+)/i },
-];
-
-function normalizeEntity(s: string): string {
-  return s.toLowerCase().trim().replace(/[?.,!]+$/, "");
-}
-
-function normalizeParams(s: string): string {
-  return s.toLowerCase().replace(/[$?]/g, "").replace(/\s+/g, " ").trim();
-}
-
-function extractTemplate(title: string): TemplateResult | null {
-  for (const { name, regex } of TEMPLATE_PATTERNS) {
-    const m = title.match(regex);
-    if (m) {
-      return {
-        template: name,
-        entity: normalizeEntity(m[1]),
-        params: normalizeParams(m[2]),
-      };
-    }
-  }
-  return null;
-}
 
 // ---------------------------------------------------------------------------
 // Fetch Probable events (paginated, reuses discoverEvents() pattern)
@@ -281,8 +225,8 @@ async function fetchProbableMarkets(
 
       if (!yesTokenId || !noTokenId) continue;
 
-      // conditionId: prefer explicit field, fall back to market id
-      const conditionId = market.conditionId || market.id;
+      // conditionId: prefer snake_case (Probable API), then camelCase, then market id
+      const conditionId = market.condition_id || market.conditionId || market.id;
 
       // Try various date field names that prediction market APIs commonly use
       const rawEvent = event as unknown as Record<string, unknown>;
@@ -311,6 +255,7 @@ async function fetchProbableMarkets(
         category: event.tags?.[0]?.label,
         hasLiquidity: true, // Will be refined below if we add orderbook checks
         resolvesAt,
+        slug: event.slug,
       });
     }
   }
@@ -440,87 +385,177 @@ async function fetchPredictMarkets(
 }
 
 // ---------------------------------------------------------------------------
+// Fetch Opinion markets (paginated)
+// ---------------------------------------------------------------------------
+
+interface OpinionMarketRaw {
+  marketId: number;
+  marketTitle: string;
+  statusEnum: string; // "Activated", "Resolved", etc.
+  marketType: number; // 0 = singular binary, non-0 = multi-outcome topic
+  labels: string[];
+  yesTokenId: string;
+  noTokenId: string;
+  conditionId: string; // always "" in practice
+  cutoffAt: number; // unix timestamp
+  yesLabel?: string;
+  noLabel?: string;
+  childMarkets?: unknown[] | null;
+}
+
+interface OpinionMarketsResponse {
+  errno: number;
+  result: {
+    total: number;
+    list: OpinionMarketRaw[];
+  };
+}
+
+async function fetchOpinionMarkets(
+  apiBase: string,
+  apiKey: string,
+): Promise<DiscoveredMarket[]> {
+  const PAGE_SIZE = 10; // Opinion API max
+  const allMarkets: OpinionMarketRaw[] = [];
+  let page = 1;
+  const MAX_PAGES = 50; // safety cap: 500 markets
+
+  while (page <= MAX_PAGES) {
+    let res: Response;
+    try {
+      const url = `${apiBase}/market?page=${page}&pageSize=${PAGE_SIZE}`;
+      res = await fetch(url, {
+        headers: { apikey: apiKey },
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (err) {
+      log.error("Opinion markets fetch failed", { page, error: String(err) });
+      break;
+    }
+
+    if (res.status === 429) {
+      log.warn("Opinion rate limited, backing off", { page });
+      await sleep(2000);
+      continue;
+    }
+
+    if (!res.ok) {
+      log.error("Opinion markets API error", { status: res.status, page });
+      break;
+    }
+
+    const data = (await res.json()) as OpinionMarketsResponse;
+    if (data.errno !== 0 || !data.result?.list) {
+      log.error("Unexpected Opinion markets response", { page, errno: data.errno });
+      break;
+    }
+
+    allMarkets.push(...data.result.list);
+    log.info("Opinion: fetched markets page", { page, count: data.result.list.length, total: allMarkets.length });
+
+    if (allMarkets.length >= data.result.total || data.result.list.length < PAGE_SIZE) break;
+    page++;
+    await sleep(200);
+  }
+
+  // Filter to active markets and map to DiscoveredMarket
+  const discovered: DiscoveredMarket[] = [];
+
+  for (const m of allMarkets) {
+    if (m.statusEnum !== "Activated") continue;
+    if (!m.yesTokenId || !m.noTokenId) continue;
+
+    let resolvesAt: string | undefined;
+    if (m.cutoffAt) {
+      try {
+        const parsed = new Date(m.cutoffAt * 1000);
+        if (!isNaN(parsed.getTime())) resolvesAt = parsed.toISOString();
+      } catch { /* ignore */ }
+    }
+
+    discovered.push({
+      platform: "Opinion",
+      id: String(m.marketId),
+      title: m.marketTitle,
+      conditionId: m.conditionId || "", // always empty for Opinion
+      yesTokenId: m.yesTokenId,
+      noTokenId: m.noTokenId,
+      category: m.labels?.[0],
+      hasLiquidity: true,
+      resolvesAt,
+      topicId: String(m.marketId),
+      opinionMarketType: m.marketType,
+    });
+  }
+
+  return discovered;
+}
+
+// ---------------------------------------------------------------------------
 // Matching
 // ---------------------------------------------------------------------------
 
-function matchMarkets(
-  probable: DiscoveredMarket[],
-  predict: DiscoveredMarket[],
+/**
+ * Match two lists of markets from different platforms.
+ * Delegates to the matching engine, then wraps results as MarketMatch.
+ */
+function matchPlatformPair(
+  listA: DiscoveredMarket[],
+  listB: DiscoveredMarket[],
 ): MarketMatch[] {
+  const aById = new Map(listA.map((m) => [m.id, m]));
+  const bById = new Map(listB.map((m) => [m.id, m]));
+
+  const raw = matchMarkets(listA, listB);
   const matches: MarketMatch[] = [];
-  const matchedProbableIds = new Set<string>();
-  const matchedPredictIds = new Set<string>();
+  const matchedAIds = new Set<string>();
+  const matchedBIds = new Set<string>();
 
-  // Pass 1: exact conditionId match
-  const predictByCondition = new Map<string, DiscoveredMarket>();
-  for (const p of predict) {
-    if (p.conditionId) predictByCondition.set(p.conditionId, p);
+  // Debug: match breakdown by type
+  const byType = { conditionId: 0, templateMatch: 0, titleSimilarity: 0 };
+  for (const r of raw) {
+    byType[r.matchType]++;
+    // Log non-conditionId matches for debugging false positives
+    if (r.matchType !== "conditionId") {
+      log.info("Match detail", {
+        type: r.matchType,
+        sim: r.similarity,
+        a: r.marketA.title.slice(0, 70),
+        b: r.marketB.title.slice(0, 70),
+      });
+    }
+  }
+  log.info("Match breakdown", byType);
+
+  for (const r of raw) {
+    const a = aById.get(r.marketA.id)!;
+    const b = bById.get(r.marketB.id)!;
+    matchedAIds.add(a.id);
+    matchedBIds.add(b.id);
+    matches.push(buildMatch(a, b, r.matchType, r.similarity));
   }
 
-  for (const prob of probable) {
-    if (!prob.conditionId) continue;
-    const pred = predictByCondition.get(prob.conditionId);
-    if (!pred) continue;
-
-    matchedProbableIds.add(prob.id);
-    matchedPredictIds.add(pred.id);
-    matches.push(buildMatch(prob, pred, "conditionId", 1.0));
-  }
-
-  // Pass 2: template extraction + entity match
-  const templateKeyToPredict = new Map<string, DiscoveredMarket>();
-  for (const pred of predict) {
-    if (matchedPredictIds.has(pred.id)) continue;
-    const tpl = extractTemplate(pred.title);
-    if (!tpl) continue;
-    const key = `${tpl.template}:${tpl.entity}:${tpl.params}`;
-    templateKeyToPredict.set(key, pred);
-  }
-
-  for (const prob of probable) {
-    if (matchedProbableIds.has(prob.id)) continue;
-    const tpl = extractTemplate(prob.title);
-    if (!tpl) continue;
-    const key = `${tpl.template}:${tpl.entity}:${tpl.params}`;
-    const pred = templateKeyToPredict.get(key);
-    if (!pred) continue;
-
-    matchedProbableIds.add(prob.id);
-    matchedPredictIds.add(pred.id);
-    matches.push(buildMatch(prob, pred, "templateMatch", 1.0));
-    log.info("Discovery: template match", { template: tpl.template, entity: tpl.entity });
-  }
-
-  // Pass 3: Jaccard title similarity fallback for remaining unmatched markets
-  const unmatchedPredict = predict.filter((p) => !matchedPredictIds.has(p.id));
+  // Near-miss logging: iterate unmatched pairs for diagnostics
+  const unmatchedA = listA.filter((m) => !matchedAIds.has(m.id));
+  const unmatchedB = listB.filter((m) => !matchedBIds.has(m.id));
   let nearMisses = 0;
 
-  for (const prob of probable) {
-    if (matchedProbableIds.has(prob.id)) continue;
-
-    let bestMatch: DiscoveredMarket | null = null;
-    let bestSimilarity = 0;
-
-    for (const pred of unmatchedPredict) {
-      if (matchedPredictIds.has(pred.id)) continue;
-
-      const sim = jaccardSimilarity(prob.title, pred.title);
-      if (sim > bestSimilarity) {
-        bestSimilarity = sim;
-        bestMatch = pred;
+  for (const a of unmatchedA) {
+    let bestSim = 0;
+    let bestB: DiscoveredMarket | null = null;
+    for (const b of unmatchedB) {
+      const sim = compositeSimilarity(a.title, b.title);
+      if (sim > bestSim) {
+        bestSim = sim;
+        bestB = b;
       }
     }
-
-    if (bestMatch && bestSimilarity >= SIMILARITY_THRESHOLD) {
-      matchedProbableIds.add(prob.id);
-      matchedPredictIds.add(bestMatch.id);
-      matches.push(buildMatch(prob, bestMatch, "titleSimilarity", bestSimilarity));
-    } else if (bestMatch && bestSimilarity >= 0.50) {
+    if (bestB && bestSim >= 0.50) {
       nearMisses++;
       log.info("Discovery near-miss", {
-        similarity: Math.round(bestSimilarity * 100) / 100,
-        probable: prob.title.slice(0, 80),
-        predict: bestMatch.title.slice(0, 80),
+        similarity: Math.round(bestSim * 100) / 100,
+        a: a.title.slice(0, 80),
+        b: bestB.title.slice(0, 80),
       });
     }
   }
@@ -533,28 +568,44 @@ function matchMarkets(
 }
 
 function buildMatch(
-  probable: DiscoveredMarket,
-  predict: DiscoveredMarket,
+  a: DiscoveredMarket,
+  b: DiscoveredMarket,
   matchType: "conditionId" | "templateMatch" | "titleSimilarity",
   similarity: number,
 ): MarketMatch {
-  return {
-    probable,
-    predict,
+  // Best-effort assignment of deprecated probable/predict fields.
+  // For Predict-anchored matches these are accurate; for Opinion↔Probable
+  // they point at whichever side is closest (Probable→probable, Opinion→predict).
+  const predictSide = a.platform === "Predict" ? a : b.platform === "Predict" ? b : undefined;
+  const probableSide = a.platform === "Probable" ? a : b.platform === "Probable" ? b : undefined;
+
+  const match: MarketMatch = {
+    platformA: a,
+    platformB: b,
+    probable: probableSide ?? a,
+    predict: predictSide ?? b,
     matchType,
     similarity: Math.round(similarity * 10000) / 10000,
-    probableMapEntry: {
-      probableMarketId: probable.id,
-      conditionId: probable.conditionId,
-      yesTokenId: probable.yesTokenId,
-      noTokenId: probable.noTokenId,
-    },
-    predictMapEntry: {
-      predictMarketId: predict.id,
-      yesTokenId: predict.yesTokenId,
-      noTokenId: predict.noTokenId,
-    },
   };
+
+  if (probableSide) {
+    match.probableMapEntry = {
+      probableMarketId: probableSide.id,
+      conditionId: probableSide.conditionId,
+      yesTokenId: probableSide.yesTokenId,
+      noTokenId: probableSide.noTokenId,
+    };
+  }
+
+  if (predictSide) {
+    match.predictMapEntry = {
+      predictMarketId: predictSide.id,
+      yesTokenId: predictSide.yesTokenId,
+      noTokenId: predictSide.noTokenId,
+    };
+  }
+
+  return match;
 }
 
 // ---------------------------------------------------------------------------
@@ -562,13 +613,9 @@ function buildMatch(
 // ---------------------------------------------------------------------------
 
 function validateMatch(match: MarketMatch): boolean {
-  // Both must have YES/NO tokens
-  if (!match.probable.yesTokenId || !match.probable.noTokenId) return false;
-  if (!match.predict.yesTokenId || !match.predict.noTokenId) return false;
-
-  // Liquidity is checked at scan time, not discovery time — the scan loop
-  // gracefully handles empty orderbooks by skipping zero-price quotes.
-
+  // Both sides must have YES/NO tokens
+  if (!match.platformA.yesTokenId || !match.platformA.noTokenId) return false;
+  if (!match.platformB.yesTokenId || !match.platformB.noTokenId) return false;
   return true;
 }
 
@@ -580,20 +627,25 @@ export async function runDiscovery(params: {
   probableEventsApiBase: string;
   predictApiBase: string;
   predictApiKey: string;
+  opinionApiBase?: string;
+  opinionApiKey?: string;
+  disableProbable?: boolean;
 }): Promise<DiscoveryResult> {
   const { probableEventsApiBase, predictApiBase, predictApiKey } = params;
 
-  // Step 1: Fetch Probable markets
-  log.info("Discovery: fetching Probable markets...");
+  // Step 1: Fetch Probable markets (skip if disabled)
   let probableMarkets: DiscoveredMarket[] = [];
-  try {
-    probableMarkets = await fetchProbableMarkets(probableEventsApiBase);
-    log.info("Discovery: Probable markets fetched", { count: probableMarkets.length });
-  } catch (err) {
-    log.error("Discovery: Probable fetch failed, skipping", { error: String(err) });
+  if (!params.disableProbable) {
+    log.info("Discovery: fetching Probable markets...");
+    try {
+      probableMarkets = await fetchProbableMarkets(probableEventsApiBase);
+      log.info("Discovery: Probable markets fetched", { count: probableMarkets.length });
+    } catch (err) {
+      log.error("Discovery: Probable fetch failed, skipping", { error: String(err) });
+    }
   }
 
-  // Step 2: Fetch Predict markets
+  // Step 2: Fetch Predict markets (always)
   log.info("Discovery: fetching Predict markets...");
   let predictMarkets: DiscoveredMarket[] = [];
   try {
@@ -603,27 +655,151 @@ export async function runDiscovery(params: {
     log.error("Discovery: Predict fetch failed, skipping", { error: String(err) });
   }
 
-  // Step 3: Match
-  log.info("Discovery: matching markets...");
-  const rawMatches = matchMarkets(probableMarkets, predictMarkets);
+  // Step 3: Fetch Opinion markets (when API key present)
+  let opinionMarkets: DiscoveredMarket[] = [];
+  if (params.opinionApiKey && params.opinionApiBase) {
+    log.info("Discovery: fetching Opinion markets...");
+    try {
+      opinionMarkets = await fetchOpinionMarkets(params.opinionApiBase, params.opinionApiKey);
+      log.info("Discovery: Opinion markets fetched", { count: opinionMarkets.length });
+    } catch (err) {
+      log.error("Discovery: Opinion fetch failed, skipping", { error: String(err) });
+    }
+  }
 
-  // Step 4: Validate
-  const matches = rawMatches.filter(validateMatch);
+  // Step 4: Match platform pairs
+  log.info("Discovery: matching markets...");
+  const allMatches: MarketMatch[] = [];
+
+  // Probable ↔ Predict
+  if (probableMarkets.length > 0 && predictMarkets.length > 0) {
+    const raw = matchPlatformPair(probableMarkets, predictMarkets);
+    allMatches.push(...raw);
+    log.info("Discovery: Probable↔Predict matches", { count: raw.length });
+  }
+
+  // Opinion ↔ Predict
+  if (opinionMarkets.length > 0 && predictMarkets.length > 0) {
+    const raw = matchPlatformPair(opinionMarkets, predictMarkets);
+    allMatches.push(...raw);
+    log.info("Discovery: Opinion↔Predict matches", { count: raw.length });
+  }
+
+  // Opinion ↔ Probable
+  if (opinionMarkets.length > 0 && probableMarkets.length > 0) {
+    const raw = matchPlatformPair(opinionMarkets, probableMarkets);
+    allMatches.push(...raw);
+    log.info("Discovery: Opinion↔Probable matches", { count: raw.length });
+  }
+
+  // Step 5: Validate
+  const matches = allMatches.filter(validateMatch);
   log.info("Discovery: matching complete", {
-    rawMatches: rawMatches.length,
+    rawMatches: allMatches.length,
     validated: matches.length,
-    droppedByValidation: rawMatches.length - matches.length,
+    droppedByValidation: allMatches.length - matches.length,
   });
 
-  // Step 5: Build output maps
+  // Step 6: Build output maps (platform-agnostic shared key)
   const probableMarketMap: DiscoveryResult["probableMarketMap"] = {};
   const predictMarketMap: DiscoveryResult["predictMarketMap"] = {};
+  const opinionMarketMap: DiscoveryResult["opinionMarketMap"] = {};
+  const titleMap: DiscoveryResult["titleMap"] = {};
+  const linkMap: DiscoveryResult["linkMap"] = {};
 
-  for (const m of matches) {
-    // Key by conditionId (shared identifier)
-    const key = m.probable.conditionId;
-    probableMarketMap[key] = m.probableMapEntry;
-    predictMarketMap[key] = m.predictMapEntry;
+  // Derive a shared key for a matched pair.
+  // Predict-anchored matches use Predict's conditionId (backward compat).
+  // Otherwise prefer a shared or Probable conditionId, else a composite key.
+  function getSharedKey(a: DiscoveredMarket, b: DiscoveredMarket): string | null {
+    if (a.platform === "Predict" && a.conditionId) return a.conditionId;
+    if (b.platform === "Predict" && b.conditionId) return b.conditionId;
+    if (a.conditionId && a.conditionId === b.conditionId) return a.conditionId;
+    if (a.platform === "Probable" && a.conditionId) return a.conditionId;
+    if (b.platform === "Probable" && b.conditionId) return b.conditionId;
+    // Composite fallback
+    return `${a.platform}:${a.id}+${b.platform}:${b.id}`;
+  }
+
+  function populateMapEntry(market: DiscoveredMarket, key: string): void {
+    if (market.platform === "Predict") {
+      predictMarketMap[key] = {
+        predictMarketId: market.id,
+        yesTokenId: market.yesTokenId,
+        noTokenId: market.noTokenId,
+      };
+    } else if (market.platform === "Probable") {
+      probableMarketMap[key] = {
+        probableMarketId: market.id,
+        conditionId: market.conditionId,
+        yesTokenId: market.yesTokenId,
+        noTokenId: market.noTokenId,
+      };
+    } else if (market.platform === "Opinion") {
+      opinionMarketMap[key] = {
+        opinionMarketId: market.id,
+        yesTokenId: market.yesTokenId,
+        noTokenId: market.noTokenId,
+        topicId: market.topicId || market.id,
+      };
+    }
+  }
+
+  // Track which platform-specific market IDs have been assigned a shared key.
+  // Prevents duplicate quotes when a market appears in multiple pairs.
+  const assignedMarketIds = new Map<string, string>(); // "platform:marketId" → sharedKey
+
+  // Sort: Predict-anchored matches first (higher priority for dedup)
+  const sorted = [...matches].sort((a, b) => {
+    const aHasPredict = a.platformA.platform === "Predict" || a.platformB.platform === "Predict";
+    const bHasPredict = b.platformA.platform === "Predict" || b.platformB.platform === "Predict";
+    return aHasPredict === bHasPredict ? 0 : aHasPredict ? -1 : 1;
+  });
+
+  for (const m of sorted) {
+    const aKey = `${m.platformA.platform}:${m.platformA.id}`;
+    const bKey = `${m.platformB.platform}:${m.platformB.id}`;
+
+    const aAssigned = assignedMarketIds.get(aKey);
+    const bAssigned = assignedMarketIds.get(bKey);
+
+    // Skip if both sides already mapped (fully covered by prior matches)
+    if (aAssigned && bAssigned) continue;
+
+    // Reuse existing key if one side is already assigned, else derive new key
+    const sharedKey = aAssigned ?? bAssigned ?? getSharedKey(m.platformA, m.platformB);
+    if (!sharedKey) continue;
+
+    if (!aAssigned) {
+      assignedMarketIds.set(aKey, sharedKey);
+      populateMapEntry(m.platformA, sharedKey);
+    }
+    if (!bAssigned) {
+      assignedMarketIds.set(bKey, sharedKey);
+      populateMapEntry(m.platformB, sharedKey);
+    }
+    // Prefer Predict title as canonical; fall back to the other platform's title
+    if (!titleMap[sharedKey]) {
+      const predictSide = m.platformA.platform === "Predict" ? m.platformA : m.platformB.platform === "Predict" ? m.platformB : null;
+      titleMap[sharedKey] = predictSide?.title || m.platformA.title || m.platformB.title;
+    }
+
+    // Build platform links using slug (shared between Probable/Predict) and topicId (Opinion)
+    if (!linkMap[sharedKey]) linkMap[sharedKey] = {};
+    const sides = [m.platformA, m.platformB];
+    const matchHasPredict = m.platformA.platform === "Predict" || m.platformB.platform === "Predict";
+    for (const side of sides) {
+      if (side.platform === "Probable" && side.slug && !linkMap[sharedKey].probable) {
+        linkMap[sharedKey].probable = `https://probable.markets/event/${side.slug}`;
+        // Only generate Predict link from Probable slug if this match involves Predict
+        // (both sourced from Polymarket, so slugs match)
+        if (matchHasPredict && !linkMap[sharedKey].predict) {
+          linkMap[sharedKey].predict = `https://predict.fun/market/${side.slug}`;
+        }
+      } else if (side.platform === "Opinion" && side.topicId && !linkMap[sharedKey].opinion) {
+        const isMulti = side.opinionMarketType && side.opinionMarketType !== 0;
+        linkMap[sharedKey].opinion = `https://app.opinion.trade/detail?topicId=${side.topicId}${isMulti ? "&type=multi" : ""}`;
+      }
+    }
   }
 
   return {
@@ -632,8 +808,12 @@ export async function runDiscovery(params: {
     predictMarkets: predictMarkets.length,
     probableMarketsList: probableMarkets,
     predictMarketsList: predictMarkets,
+    opinionMarketsList: opinionMarkets,
     matches,
     probableMarketMap,
     predictMarketMap,
+    opinionMarketMap,
+    titleMap,
+    linkMap,
   };
 }

@@ -58,6 +58,26 @@ function predictMarket(id: number, title: string, opts?: {
   };
 }
 
+function opinionMarket(id: number, title: string, opts?: {
+  statusEnum?: string;
+  yesTokenId?: string;
+  noTokenId?: string;
+  conditionId?: string;
+  cutoffAt?: number;
+  labels?: string[];
+}) {
+  return {
+    marketId: id,
+    marketTitle: title,
+    statusEnum: opts?.statusEnum ?? "Activated",
+    yesTokenId: opts?.yesTokenId ?? `yes-op-${id}`,
+    noTokenId: opts?.noTokenId ?? `no-op-${id}`,
+    conditionId: opts?.conditionId ?? "",
+    cutoffAt: opts?.cutoffAt ?? Math.floor(Date.now() / 1000) + 86400,
+    labels: opts?.labels ?? ["Crypto"],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Fetch mock
 // ---------------------------------------------------------------------------
@@ -68,8 +88,10 @@ function setupFetch(opts: {
   probableEvents?: unknown[][];  // array of pages
   predictMarkets?: unknown[];
   predictCategories?: unknown[];
+  opinionMarkets?: unknown[];
   probableFail?: boolean;
   predictFail?: boolean;
+  opinionFail?: boolean;
 }) {
   const probablePages = opts.probableEvents ?? [[]];
   let probablePageIdx = 0;
@@ -85,6 +107,26 @@ function setupFetch(opts: {
       const page = probablePages[probablePageIdx] ?? [];
       probablePageIdx++;
       return new Response(JSON.stringify(page), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Opinion markets endpoint
+    if (url.includes("/market?page=")) {
+      if (opts.opinionFail) {
+        return new Response("Internal Server Error", { status: 500 });
+      }
+      const allOpinion = opts.opinionMarkets ?? [];
+      const urlObj = new URL(url);
+      const page = parseInt(urlObj.searchParams.get("page") ?? "1", 10);
+      const pageSize = parseInt(urlObj.searchParams.get("pageSize") ?? "10", 10);
+      const start = (page - 1) * pageSize;
+      const slice = allOpinion.slice(start, start + pageSize);
+      return new Response(JSON.stringify({
+        errno: 0,
+        result: { total: allOpinion.length, list: slice },
+      }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -426,5 +468,208 @@ describe("runDiscovery", () => {
     expect(types).toContain("conditionId");
     expect(types).toContain("templateMatch");
     expect(types).toContain("titleSimilarity");
+  });
+
+  // -------------------------------------------------------------------------
+  // Opinion discovery tests
+  // -------------------------------------------------------------------------
+
+  const opinionParams = {
+    ...params,
+    opinionApiBase: "https://api.opinion.test",
+    opinionApiKey: "op-key-123",
+  };
+
+  it("fetches Opinion markets and matches by title similarity", async () => {
+    setupFetch({
+      probableEvents: [[]],
+      opinionMarkets: [opinionMarket(1, "Lakers vs Celtics NBA Finals 2025")],
+      predictMarkets: [predictMarket(1, "Lakers vs Celtics NBA Finals 2025", { conditionId: "pred-cond-1" })],
+    });
+
+    const result = await runDiscovery(opinionParams);
+    expect(result.opinionMarketsList.length).toBe(1);
+    expect(result.matches.length).toBeGreaterThanOrEqual(1);
+
+    const opMatch = result.matches.find(
+      (m) => m.platformA.platform === "Opinion" || m.platformB.platform === "Opinion",
+    );
+    expect(opMatch).toBeDefined();
+    expect(Object.keys(result.opinionMarketMap).length).toBe(1);
+  });
+
+  it("Opinion matching skips conditionId pass (Opinion has no conditionId)", async () => {
+    setupFetch({
+      probableEvents: [[]],
+      opinionMarkets: [opinionMarket(2, "Will Solana FDV be above $100B?", { conditionId: "" })],
+      predictMarkets: [predictMarket(2, "Will Solana FDV be above $100B?", { conditionId: "pred-cond-2" })],
+    });
+
+    const result = await runDiscovery(opinionParams);
+    expect(result.matches.length).toBe(1);
+    // Should match via template or titleSimilarity, NOT conditionId
+    expect(result.matches[0].matchType).not.toBe("conditionId");
+  });
+
+  it("disableProbable skips Probable fetch", async () => {
+    setupFetch({
+      probableEvents: [[probableEvent("1", "Should not be fetched")]],
+      opinionMarkets: [opinionMarket(3, "Some Opinion market")],
+      predictMarkets: [predictMarket(3, "Some Predict market")],
+    });
+
+    const result = await runDiscovery({ ...opinionParams, disableProbable: true });
+    expect(result.probableMarkets).toBe(0);
+
+    // Verify no Probable endpoint was called
+    const calls = fetchSpy.mock.calls as Array<[string | Request, ...unknown[]]>;
+    const probableCalls = calls.filter((c) => {
+      const u = typeof c[0] === "string" ? c[0] : (c[0] as Request).url;
+      return u.includes("/public/api/v1/events");
+    });
+    expect(probableCalls.length).toBe(0);
+  });
+
+  it("Opinion markets are filtered to statusEnum=Activated only", async () => {
+    setupFetch({
+      probableEvents: [[]],
+      opinionMarkets: [
+        opinionMarket(10, "Active market", { statusEnum: "Activated" }),
+        opinionMarket(11, "Resolved market", { statusEnum: "Resolved" }),
+        opinionMarket(12, "Another active", { statusEnum: "Activated" }),
+      ],
+      predictMarkets: [],
+    });
+
+    const result = await runDiscovery(opinionParams);
+    expect(result.opinionMarketsList.length).toBe(2);
+    expect(result.opinionMarketsList.every((m) => m.platform === "Opinion")).toBe(true);
+  });
+
+  it("builds correct opinionMarketMap from Opinion↔Predict matches", async () => {
+    setupFetch({
+      probableEvents: [[]],
+      opinionMarkets: [opinionMarket(42, "Lakers vs Celtics NBA Finals 2025", {
+        yesTokenId: "op-yes-42",
+        noTokenId: "op-no-42",
+      })],
+      predictMarkets: [predictMarket(42, "Lakers vs Celtics NBA Finals 2025", {
+        conditionId: "pred-cond-42",
+        yesTokenId: "pred-yes-42",
+        noTokenId: "pred-no-42",
+      })],
+    });
+
+    const result = await runDiscovery(opinionParams);
+    expect(result.matches.length).toBe(1);
+
+    const entry = result.opinionMarketMap["pred-cond-42"];
+    expect(entry).toBeDefined();
+    expect(entry).toEqual({
+      opinionMarketId: "42",
+      yesTokenId: "op-yes-42",
+      noTokenId: "op-no-42",
+      topicId: "42",
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Opinion ↔ Probable matching tests
+  // -------------------------------------------------------------------------
+
+  it("matches Opinion↔Probable by title similarity", async () => {
+    setupFetch({
+      probableEvents: [[probableEvent("1", "Lakers vs Celtics NBA Finals 2025", { conditionId: "prob-cond-1" })]],
+      opinionMarkets: [opinionMarket(1, "Lakers vs Celtics NBA Finals 2025")],
+      predictMarkets: [],
+    });
+
+    const result = await runDiscovery(opinionParams);
+    expect(result.matches.length).toBe(1);
+
+    const m = result.matches[0];
+    expect(
+      (m.platformA.platform === "Opinion" && m.platformB.platform === "Probable") ||
+      (m.platformA.platform === "Probable" && m.platformB.platform === "Opinion"),
+    ).toBe(true);
+  });
+
+  it("Opinion↔Probable match uses Probable conditionId as shared key", async () => {
+    setupFetch({
+      probableEvents: [[probableEvent("1", "Lakers vs Celtics NBA Finals 2025", {
+        conditionId: "prob-cond-lakers",
+        yesTokenId: "prob-yes-1",
+        noTokenId: "prob-no-1",
+      })]],
+      opinionMarkets: [opinionMarket(1, "Lakers vs Celtics NBA Finals 2025", {
+        yesTokenId: "op-yes-1",
+        noTokenId: "op-no-1",
+      })],
+      predictMarkets: [],
+    });
+
+    const result = await runDiscovery(opinionParams);
+    expect(result.matches.length).toBe(1);
+
+    // Shared key should be Probable's conditionId
+    expect(result.probableMarketMap["prob-cond-lakers"]).toEqual({
+      probableMarketId: expect.any(String),
+      conditionId: "prob-cond-lakers",
+      yesTokenId: "prob-yes-1",
+      noTokenId: "prob-no-1",
+    });
+    expect(result.opinionMarketMap["prob-cond-lakers"]).toEqual({
+      opinionMarketId: "1",
+      yesTokenId: "op-yes-1",
+      noTokenId: "op-no-1",
+      topicId: "1",
+    });
+  });
+
+  it("deduplicates: market on all 3 platforms appears once under Predict key", async () => {
+    const title = "Lakers vs Celtics NBA Finals 2025";
+    setupFetch({
+      probableEvents: [[probableEvent("1", title, {
+        conditionId: "prob-cond-1",
+        yesTokenId: "prob-yes",
+        noTokenId: "prob-no",
+      })]],
+      opinionMarkets: [opinionMarket(1, title, {
+        yesTokenId: "op-yes",
+        noTokenId: "op-no",
+      })],
+      predictMarkets: [predictMarket(1, title, {
+        conditionId: "pred-cond-1",
+        yesTokenId: "pred-yes",
+        noTokenId: "pred-no",
+      })],
+    });
+
+    const result = await runDiscovery(opinionParams);
+
+    // Should have 3 raw matches (P↔Pred, O↔Pred, O↔P) but dedup means
+    // the Opinion↔Probable match is skipped in map building since both
+    // Opinion and Probable are already covered by Predict-anchored matches.
+    expect(result.matches.length).toBe(3);
+
+    // Maps should have entries under Predict's conditionId only
+    expect(Object.keys(result.predictMarketMap)).toEqual(["pred-cond-1"]);
+    expect(Object.keys(result.probableMarketMap)).toEqual(["pred-cond-1"]);
+    expect(Object.keys(result.opinionMarketMap)).toEqual(["pred-cond-1"]);
+  });
+
+  it("buildMatch omits probableMapEntry/predictMapEntry for Opinion↔Probable", async () => {
+    setupFetch({
+      probableEvents: [[probableEvent("1", "Lakers vs Celtics NBA Finals 2025", { conditionId: "prob-cond-1" })]],
+      opinionMarkets: [opinionMarket(1, "Lakers vs Celtics NBA Finals 2025")],
+      predictMarkets: [],
+    });
+
+    const result = await runDiscovery(opinionParams);
+    expect(result.matches.length).toBe(1);
+    // No Predict side → predictMapEntry should be undefined
+    expect(result.matches[0].predictMapEntry).toBeUndefined();
+    // Probable side → probableMapEntry should be defined
+    expect(result.matches[0].probableMapEntry).toBeDefined();
   });
 });

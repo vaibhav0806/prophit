@@ -8,6 +8,24 @@ export class QuoteStore {
   private quotes: MarketQuote[] = [];
   private updatedAt = 0;
   private metaResolvers: Map<string, MarketMetaResolver> = new Map();
+  private titleMap: Map<string, string> = new Map();
+  private linkMap: Map<string, { predict?: string; probable?: string; opinion?: string }> = new Map();
+
+  setTitles(titles: Map<string, string>): void {
+    this.titleMap = titles;
+  }
+
+  getTitle(marketId: string): string | undefined {
+    return this.titleMap.get(marketId);
+  }
+
+  setLinks(links: Map<string, { predict?: string; probable?: string; opinion?: string }>): void {
+    this.linkMap = links;
+  }
+
+  getLinks(marketId: string): { predict?: string; probable?: string; opinion?: string } | undefined {
+    return this.linkMap.get(marketId);
+  }
 
   update(quotes: MarketQuote[], metaResolvers?: Map<string, MarketMetaResolver>): void {
     this.quotes = quotes;

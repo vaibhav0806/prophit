@@ -24,6 +24,13 @@ const scannerConfig = {
   probableEventsApiBase: process.env.PROBABLE_EVENTS_API_BASE ?? "https://market-api.probable.markets",
   scanIntervalMs: Number(process.env.SCAN_INTERVAL_MS ?? "5000"),
   autoDiscover: process.env.AUTO_DISCOVER !== "false",
+  disableProbable: process.env.DISABLE_PROBABLE === "true",
+  opinionApiKey: process.env.OPINION_API_KEY ?? "",
+  opinionApiBase: process.env.OPINION_API_BASE ?? "https://openapi.opinion.trade/openapi",
+  opinionAdapterAddress: process.env.OPINION_ADAPTER_ADDRESS ?? "",
+  opinionTokenMap: process.env.OPINION_TOKEN_MAP
+    ? JSON.parse(process.env.OPINION_TOKEN_MAP) as Record<string, { yesTokenId: string; noTokenId: string; topicId: string }>
+    : undefined,
 };
 
 const platformConfig = {
@@ -36,6 +43,9 @@ const platformConfig = {
   predictExchangeAddress: (process.env.PREDICT_EXCHANGE_ADDRESS ?? "0x8BC070BEdAB741406F4B1Eb65A72bee27894B689") as `0x${string}`,
   orderExpirationSec: Number(process.env.ORDER_EXPIRATION_SEC ?? "300"),
   dryRun: process.env.DRY_RUN === "true",
+  opinionApiBase: scannerConfig.opinionApiBase || undefined,
+  opinionApiKey: scannerConfig.opinionApiKey || undefined,
+  opinionExchangeAddress: (process.env.OPINION_EXCHANGE_ADDRESS || scannerConfig.opinionAdapterAddress || undefined) as `0x${string}` | undefined,
 };
 
 const databaseUrl = requireEnv("DATABASE_URL");

@@ -1,5 +1,6 @@
 import { PredictProvider } from "@prophit/agent/src/providers/predict-provider.js";
 import { ProbableProvider } from "@prophit/agent/src/providers/probable-provider.js";
+import { OpinionProvider } from "@prophit/agent/src/providers/opinion-provider.js";
 import type { MarketProvider } from "@prophit/agent/src/providers/base.js";
 import type { MarketQuote } from "@prophit/agent/src/types.js";
 import { runDiscovery } from "@prophit/agent/src/discovery/pipeline.js";
@@ -16,6 +17,11 @@ export interface ScannerConfig {
   probableEventsApiBase: string;
   scanIntervalMs: number;
   autoDiscover: boolean;
+  disableProbable: boolean;
+  opinionApiKey: string;
+  opinionApiBase: string;
+  opinionAdapterAddress: string;
+  opinionTokenMap?: Record<string, { yesTokenId: string; noTokenId: string; topicId: string }>;
 }
 
 export class ScannerService {
@@ -34,6 +40,8 @@ export class ScannerService {
     let predictMarketMap: Record<string, { predictMarketId: string; yesTokenId: string; noTokenId: string }> = {};
     let probableMarketMap: Record<string, { probableMarketId: string; conditionId: string; yesTokenId: string; noTokenId: string }> = {};
 
+    let opinionMarketMap: Record<string, { opinionMarketId: string; yesTokenId: string; noTokenId: string; topicId: string }> = {};
+
     // Auto-discovery
     if (this.config.autoDiscover && this.config.predictApiKey) {
       try {
@@ -42,10 +50,20 @@ export class ScannerService {
           probableEventsApiBase: this.config.probableEventsApiBase,
           predictApiBase: this.config.predictApiBase,
           predictApiKey: this.config.predictApiKey,
+          opinionApiBase: this.config.opinionApiBase || undefined,
+          opinionApiKey: this.config.opinionApiKey || undefined,
+          disableProbable: this.config.disableProbable,
         });
         predictMarketMap = result.predictMarketMap;
         probableMarketMap = result.probableMarketMap;
-        console.log(`[Scanner] Auto-discovery complete: ${result.matches.length} matches`);
+        opinionMarketMap = result.opinionMarketMap;
+        if (result.titleMap) {
+          this.quoteStore.setTitles(new Map(Object.entries(result.titleMap)));
+        }
+        if (result.linkMap) {
+          this.quoteStore.setLinks(new Map(Object.entries(result.linkMap)));
+        }
+        console.log(`[Scanner] Auto-discovery complete: ${result.matches.length} matches (Probable: ${Object.keys(probableMarketMap).length}, Opinion: ${Object.keys(opinionMarketMap).length})`);
       } catch (err) {
         console.error("[Scanner] Auto-discovery failed:", err);
       }
@@ -65,7 +83,7 @@ export class ScannerService {
       console.log(`[Scanner] Predict provider enabled: ${Object.keys(predictMarketMap).length} markets`);
     }
 
-    if (Object.keys(probableMarketMap).length > 0) {
+    if (Object.keys(probableMarketMap).length > 0 && !this.config.disableProbable) {
       const marketMap = new Map(Object.entries(probableMarketMap));
       const probableProvider = new ProbableProvider(
         DUMMY_ADAPTER,
@@ -76,6 +94,33 @@ export class ScannerService {
       );
       this.providers.push(probableProvider);
       console.log(`[Scanner] Probable provider enabled: ${Object.keys(probableMarketMap).length} markets`);
+    }
+
+    // Opinion provider — prefer discovered maps, fall back to static OPINION_TOKEN_MAP
+    if (this.config.opinionApiKey) {
+      let opinionTokenEntries: [string, { yesTokenId: string; noTokenId: string; topicId: string }][] = [];
+
+      if (Object.keys(opinionMarketMap).length > 0) {
+        // Use auto-discovered Opinion markets
+        opinionTokenEntries = Object.entries(opinionMarketMap).map(([k, v]) => [k, { yesTokenId: v.yesTokenId, noTokenId: v.noTokenId, topicId: v.topicId }]);
+      } else if (this.config.opinionTokenMap) {
+        // Fallback to static env config
+        opinionTokenEntries = Object.entries(this.config.opinionTokenMap);
+      }
+
+      if (opinionTokenEntries.length > 0) {
+        const tokenMap = new Map(opinionTokenEntries);
+        const marketIds = opinionTokenEntries.map(([k]) => k as `0x${string}`);
+        const opinionProvider = new OpinionProvider(
+          (this.config.opinionAdapterAddress || DUMMY_ADAPTER) as `0x${string}`,
+          this.config.opinionApiBase,
+          this.config.opinionApiKey,
+          marketIds,
+          tokenMap,
+        );
+        this.providers.push(opinionProvider);
+        console.log(`[Scanner] Opinion provider enabled: ${opinionTokenEntries.length} markets (${Object.keys(opinionMarketMap).length > 0 ? "discovered" : "static"})`);
+      }
     }
   }
 

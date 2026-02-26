@@ -12,6 +12,7 @@ import { VaultClient } from "./execution/vault-client.js";
 import { Executor } from "./execution/executor.js";
 import { ProbableClobClient } from "./clob/probable-client.js";
 import { PredictClobClient } from "./clob/predict-client.js";
+import { OpinionClobClient } from "./clob/opinion-client.js";
 import type { ClobClient } from "./clob/types.js";
 import { createServer } from "./api/server.js";
 import { log } from "./logger.js";
@@ -211,20 +212,25 @@ if (persisted) {
 // --- CLOB clients (when executionMode=clob) ---
 let probableClobClient: ProbableClobClient | undefined;
 let predictClobClient: PredictClobClient | undefined;
+let opinionClobClient: OpinionClobClient | undefined;
 let clobInitPromise: Promise<void> | undefined;
 
 if (config.executionMode === "clob") {
   log.info("CLOB execution mode enabled");
 
-  probableClobClient = new ProbableClobClient({
-    walletClient,
-    apiBase: config.probableApiBase,
-    exchangeAddress: config.probableExchangeAddress,
-    chainId: config.chainId,
-    expirationSec: config.orderExpirationSec,
-    dryRun: config.dryRun,
-    proxyAddress: config.probableProxyAddress,
-  });
+  if (!config.disableProbable) {
+    probableClobClient = new ProbableClobClient({
+      walletClient,
+      apiBase: config.probableApiBase,
+      exchangeAddress: config.probableExchangeAddress,
+      chainId: config.chainId,
+      expirationSec: config.orderExpirationSec,
+      dryRun: config.dryRun,
+      proxyAddress: config.probableProxyAddress,
+    });
+  } else {
+    log.info("Probable CLOB disabled via DISABLE_PROBABLE");
+  }
 
   if (config.predictApiKey) {
     predictClobClient = new PredictClobClient({
@@ -238,29 +244,52 @@ if (config.executionMode === "clob") {
     });
   }
 
+  if (config.opinionApiKey) {
+    opinionClobClient = new OpinionClobClient({
+      walletClient,
+      apiBase: config.opinionApiBase,
+      apiKey: config.opinionApiKey,
+      exchangeAddress: config.opinionExchangeAddress as `0x${string}`,
+      chainId: config.chainId,
+      expirationSec: config.orderExpirationSec,
+      dryRun: config.dryRun,
+    });
+  }
+
   // Initialize CLOB clients (auth + nonce)
   clobInitPromise = (async () => {
     try {
-      await probableClobClient!.authenticate();
-      await probableClobClient!.fetchNonce();
+      if (probableClobClient) {
+        await probableClobClient.authenticate();
+        await probableClobClient.fetchNonce();
+      }
       if (predictClobClient) {
         await predictClobClient.authenticate();
         await predictClobClient.fetchNonce();
       }
+      if (opinionClobClient) {
+        await opinionClobClient.authenticate();
+        await opinionClobClient.fetchNonce();
+      }
       // Restore persisted nonces (must happen after auth/fetchNonce)
       if (persisted?.clobNonces) {
-        if (persisted.clobNonces.Probable) {
-          probableClobClient!.setNonce(BigInt(persisted.clobNonces.Probable));
+        if (probableClobClient && persisted.clobNonces.Probable) {
+          probableClobClient.setNonce(BigInt(persisted.clobNonces.Probable));
           log.info("Restored Probable nonce", { nonce: persisted.clobNonces.Probable });
         }
         if (predictClobClient && persisted.clobNonces.Predict) {
           predictClobClient.setNonce(BigInt(persisted.clobNonces.Predict));
           log.info("Restored Predict nonce", { nonce: persisted.clobNonces.Predict });
         }
+        if (opinionClobClient && persisted.clobNonces.Opinion) {
+          opinionClobClient.setNonce(BigInt(persisted.clobNonces.Opinion));
+          log.info("Restored Opinion nonce", { nonce: persisted.clobNonces.Opinion });
+        }
       }
       // Check approvals
-      await probableClobClient!.ensureApprovals(publicClient, config.maxPositionSize);
+      if (probableClobClient) await probableClobClient.ensureApprovals(publicClient, config.maxPositionSize);
       if (predictClobClient) await predictClobClient.ensureApprovals(publicClient);
+      if (opinionClobClient) await opinionClobClient.ensureApprovals(publicClient);
       // Startup balance checks
       await validateStartupBalances();
       log.info("CLOB clients initialized");
@@ -304,17 +333,18 @@ const executor = new Executor(
   vaultClient ?? undefined,
   config,
   publicClient,
-  { probable: probableClobClient, predict: predictClobClient, probableProxyAddress: config.probableProxyAddress },
+  { probable: probableClobClient, predict: predictClobClient, opinion: opinionClobClient, probableProxyAddress: config.probableProxyAddress },
   metaResolvers,
   walletClient,
 );
 
 // --- CLOB nonce collection for persistence ---
 function collectClobNonces(): Record<string, string> | undefined {
-  if (!probableClobClient && !predictClobClient) return undefined;
+  if (!probableClobClient && !predictClobClient && !opinionClobClient) return undefined;
   const nonces: Record<string, string> = {};
   if (probableClobClient) nonces.Probable = probableClobClient.getNonce().toString();
   if (predictClobClient) nonces.Predict = predictClobClient.getNonce().toString();
+  if (opinionClobClient) nonces.Opinion = opinionClobClient.getNonce().toString();
   return nonces;
 }
 
@@ -379,6 +409,7 @@ const agent = new AgentInstance({
   clobClients: {
     probable: probableClobClient,
     predict: predictClobClient,
+    opinion: opinionClobClient,
     probableProxyAddress: config.probableProxyAddress,
   },
   vaultClient: vaultClient ?? undefined,
@@ -452,6 +483,7 @@ async function shutdown() {
     const clients: Array<{ name: string; client: ClobClient }> = [];
     if (probableClobClient) clients.push({ name: "Probable", client: probableClobClient });
     if (predictClobClient) clients.push({ name: "Predict", client: predictClobClient });
+    if (opinionClobClient) clients.push({ name: "Opinion", client: opinionClobClient });
 
     for (const { name, client } of clients) {
       try {

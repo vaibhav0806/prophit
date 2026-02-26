@@ -39,6 +39,7 @@ export interface AgentInstanceParams {
   clobClients?: {
     probable?: ClobClient;
     predict?: ClobClient;
+    opinion?: ClobClient;
     probableProxyAddress?: `0x${string}`;
   };
   vaultClient?: VaultClient;
@@ -95,6 +96,7 @@ export class AgentInstance {
   private readonly clobClients?: {
     probable?: ClobClient;
     predict?: ClobClient;
+    opinion?: ClobClient;
     probableProxyAddress?: `0x${string}`;
   };
   private readonly onTradeExecuted?: (trade: ClobPosition) => void;

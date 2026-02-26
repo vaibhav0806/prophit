@@ -46,6 +46,7 @@ export const config = {
   opinionAdapterAddress: (process.env.OPINION_ADAPTER_ADDRESS || undefined) as `0x${string}` | undefined,
   opinionApiBase: process.env.OPINION_API_BASE || "https://openapi.opinion.trade/openapi",
   opinionApiKey: process.env.OPINION_API_KEY || "",
+  opinionExchangeAddress: (process.env.OPINION_EXCHANGE_ADDRESS || "") as `0x${string}`,
   opinionTokenMap: process.env.OPINION_TOKEN_MAP
     ? JSON.parse(process.env.OPINION_TOKEN_MAP) as Record<string, { yesTokenId: string; noTokenId: string; topicId: string }>
     : undefined,
@@ -81,6 +82,7 @@ export const config = {
   fillPollIntervalMs: Number(process.env.FILL_POLL_INTERVAL_MS ?? "5000"),
   fillPollTimeoutMs: Number(process.env.FILL_POLL_TIMEOUT_MS ?? "60000"),
   autoDiscover: process.env.AUTO_DISCOVER === "true",
+  disableProbable: process.env.DISABLE_PROBABLE === "true",
 } as const;
 
 if (!config.apiKey) {

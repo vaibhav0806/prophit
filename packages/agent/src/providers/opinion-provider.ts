@@ -1,5 +1,5 @@
 import { MarketProvider } from "./base.js";
-import type { MarketQuote } from "../types.js";
+import type { MarketQuote, MarketMeta } from "../types.js";
 import { log } from "../logger.js";
 import { withRetry } from "../retry.js";
 import { decimalToBigInt } from "../utils.js";
@@ -47,6 +47,16 @@ export class OpinionProvider extends MarketProvider {
     this.apiKey = apiKey;
     this.marketIds = marketIds;
     this.tokenMap = tokenMap;
+  }
+
+  getMarketMeta(marketId: `0x${string}`): MarketMeta | undefined {
+    const mapping = this.tokenMap.get(marketId);
+    if (!mapping) return undefined;
+    return {
+      conditionId: marketId,
+      yesTokenId: mapping.yesTokenId,
+      noTokenId: mapping.noTokenId,
+    };
   }
 
   async fetchQuotes(): Promise<MarketQuote[]> {

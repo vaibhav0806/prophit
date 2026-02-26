@@ -455,19 +455,20 @@ export class Executor {
     }
 
     // ---------------------------------------------------------------------------
-    // Sequential execution: Probable first, then Predict only if Probable fills.
-    // Probable FOK orders fail frequently (thin/stale orderbook liquidity).
-    // Placing Probable first means a failure costs $0 (no capital committed).
+    // Sequential execution: unreliable leg first, then reliable leg only if it fills.
+    // Unreliable legs (Probable, Opinion) have thin orderbooks — FOK orders fail often.
+    // Placing the unreliable leg first means a failure costs $0 (no capital committed).
     // Predict is the deeper, more reliable exchange.
     // ---------------------------------------------------------------------------
 
-    const predictIsA = opportunity.protocolA.toLowerCase() === "predict";
-    const predictClient = predictIsA ? clientA : clientB;
-    const probableClient = predictIsA ? clientB : clientA;
-    const predictParams = predictIsA ? legAParams : legBParams;
-    const probableParams = predictIsA ? legBParams : legAParams;
-    const predictMeta = predictIsA ? metaA : metaB;
-    const probableMeta = predictIsA ? metaB : metaA;
+    const RELIABLE_PLATFORMS = new Set(["predict"]);
+    const reliableIsA = RELIABLE_PLATFORMS.has(opportunity.protocolA.toLowerCase());
+    const predictClient = reliableIsA ? clientA : clientB;
+    const probableClient = reliableIsA ? clientB : clientA;
+    const predictParams = reliableIsA ? legAParams : legBParams;
+    const probableParams = reliableIsA ? legBParams : legAParams;
+    const predictMeta = reliableIsA ? metaA : metaB;
+    const probableMeta = reliableIsA ? metaB : metaA;
 
     const isFilledStatus = (s?: string) => {
       const u = s?.toUpperCase();
@@ -500,14 +501,14 @@ export class Executor {
         status: "FILLED",
         legA: {
           platform: opportunity.protocolA,
-          orderId: (predictIsA ? predictResult.orderId : probableResult.orderId) ?? "",
+          orderId: (reliableIsA ? predictResult.orderId : probableResult.orderId) ?? "",
           tokenId: legAParams.tokenId,
           side: "BUY", price: priceA, size: sizeUsdt, filled: true, filledSize: sizeUsdt,
           ...(metaA.predictMarketId ? { marketId: metaA.predictMarketId } : {}),
         },
         legB: {
           platform: opportunity.protocolB,
-          orderId: (predictIsA ? probableResult.orderId : predictResult.orderId) ?? "",
+          orderId: (reliableIsA ? probableResult.orderId : predictResult.orderId) ?? "",
           tokenId: legBParams.tokenId,
           side: "BUY", price: priceB, size: sizeUsdt, filled: true, filledSize: sizeUsdt,
           ...(metaB.predictMarketId ? { marketId: metaB.predictMarketId } : {}),
@@ -588,14 +589,14 @@ export class Executor {
         status: "EXPIRED",
         legA: {
           platform: opportunity.protocolA,
-          orderId: predictIsA ? "" : (probableResult.orderId ?? ""),
+          orderId: reliableIsA ? "" : (probableResult.orderId ?? ""),
           tokenId: legAParams.tokenId,
           side: "BUY", price: priceA, size: sizeUsdt, filled: false, filledSize: 0,
           ...(metaA.predictMarketId ? { marketId: metaA.predictMarketId } : {}),
         },
         legB: {
           platform: opportunity.protocolB,
-          orderId: predictIsA ? (probableResult.orderId ?? "") : "",
+          orderId: reliableIsA ? (probableResult.orderId ?? "") : "",
           tokenId: legBParams.tokenId,
           side: "BUY", price: priceB, size: sizeUsdt, filled: false, filledSize: 0,
           ...(metaB.predictMarketId ? { marketId: metaB.predictMarketId } : {}),
@@ -617,25 +618,25 @@ export class Executor {
 
     const legA: ClobLeg = {
       platform: opportunity.protocolA,
-      orderId: (predictIsA ? predictResult.orderId : probableResult.orderId) ?? "",
+      orderId: (reliableIsA ? predictResult.orderId : probableResult.orderId) ?? "",
       tokenId: legAParams.tokenId,
       side: "BUY",
       price: priceA,
       size: sizeUsdt,
-      filled: predictIsA ? isFilledStatus(predictResult.status) : true,
-      filledSize: predictIsA ? (isFilledStatus(predictResult.status) ? sizeUsdt : 0) : sizeUsdt,
+      filled: reliableIsA ? isFilledStatus(predictResult.status) : true,
+      filledSize: reliableIsA ? (isFilledStatus(predictResult.status) ? sizeUsdt : 0) : sizeUsdt,
       ...(metaA.predictMarketId ? { marketId: metaA.predictMarketId } : {}),
     };
 
     const legB: ClobLeg = {
       platform: opportunity.protocolB,
-      orderId: (predictIsA ? probableResult.orderId : predictResult.orderId) ?? "",
+      orderId: (reliableIsA ? probableResult.orderId : predictResult.orderId) ?? "",
       tokenId: legBParams.tokenId,
       side: "BUY",
       price: priceB,
       size: sizeUsdt,
-      filled: predictIsA ? true : isFilledStatus(predictResult.status),
-      filledSize: predictIsA ? sizeUsdt : (isFilledStatus(predictResult.status) ? sizeUsdt : 0),
+      filled: reliableIsA ? true : isFilledStatus(predictResult.status),
+      filledSize: reliableIsA ? sizeUsdt : (isFilledStatus(predictResult.status) ? sizeUsdt : 0),
       ...(metaB.predictMarketId ? { marketId: metaB.predictMarketId } : {}),
     };
 
@@ -661,7 +662,7 @@ export class Executor {
 
       // Pause and attempt unwind of Probable leg
       this.paused = true;
-      const probableLeg = predictIsA ? position.legB : position.legA;
+      const probableLeg = reliableIsA ? position.legB : position.legA;
       await this.attemptUnwind(probableClient, probableLeg);
       return position;
     }
@@ -710,7 +711,7 @@ export class Executor {
     }
 
     // Update leg status
-    if (predictIsA) {
+    if (reliableIsA) {
       position.legA.filled = predictFilled;
       position.legB.filled = true; // Already confirmed
     } else {
@@ -734,7 +735,7 @@ export class Executor {
       this.marketCooldowns.set(marketKey, Date.now() + Executor.MARKET_COOLDOWN_MS);
 
       // Attempt to unwind Probable leg
-      const probableLeg = predictIsA ? position.legB : position.legA;
+      const probableLeg = reliableIsA ? position.legB : position.legA;
       await this.attemptUnwind(probableClient, probableLeg);
     }
 

@@ -115,9 +115,11 @@ export class OpinionProvider extends MarketProvider {
         signal: AbortSignal.timeout(10_000),
       });
       if (!res.ok) throw new Error(`Opinion API error: ${res.status}`);
-      const data = await res.json();
-      if (!data.asks || !data.bids) throw new Error("Invalid orderbook response");
-      return data as OpinionOrderBook;
+      const data = await res.json() as any;
+      // Response is { errno, result: { bids, asks } }
+      const book = data.result ?? data;
+      if (!book.asks || !book.bids) throw new Error("Invalid orderbook response");
+      return book as OpinionOrderBook;
     }, { label: `Opinion orderbook ${tokenId}` });
   }
 }

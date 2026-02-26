@@ -181,7 +181,7 @@ if (config.predictApiKey && Object.keys(predictMarketMap).length > 0) {
   log.info("Predict provider enabled", { markets: Object.keys(predictMarketMap).length });
 }
 
-if (Object.keys(probableMarketMap).length > 0) {
+if (Object.keys(probableMarketMap).length > 0 && !config.disableProbable) {
   const marketMap = new Map(Object.entries(probableMarketMap));
   const probableProvider = new ProbableProvider(
     config.probableAdapterAddress || DUMMY_ADAPTER,

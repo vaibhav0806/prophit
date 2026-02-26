@@ -1,141 +1,218 @@
 # Prophit
 
-Autonomous AI agent that detects and executes cross-market arbitrage on BNB Chain prediction markets, capturing risk-free profit from price discrepancies across Opinion, Predict.fun, and Probable.
+Autonomous arbitrage agent for BNB Chain prediction markets. Detects price discrepancies across Predict.fun, Probable, and Opinion Labs CLOBs, then executes delta-neutral trades to capture risk-free profit.
 
 ## Architecture
 
 ```
-+-------------------+       REST/WS        +-------------------+
-|                   | <------------------> |                   |
-|     Frontend      |                      |      Agent        |
-|   (Next.js 14)    |                      | (Node.js + AI)    |
-|                   |                      |                   |
-+-------------------+                      +--------+----------+
-        |                                           |
-        | wagmi/viem                      viem + tx signing
-        |                                           |
-        v                                           v
-+---------------------------------------------------------------+
-|                     BNB Chain (BSC)                            |
-|                                                               |
-|  +------------------+    +----------+    +-----------------+  |
-|  |  ProphitVault    |--->| Protocol |<---| OpinionAdapter  |  |
-|  |  (Capital Pool)  |    | Adapter  |    | PredictAdapter  |  |
-|  |  Circuit Breakers|    | Interface|    | ProbableAdapter  |  |
-|  +------------------+    +----------+    +-----------------+  |
-+---------------------------------------------------------------+
+                        +-----------+
+                        |  Frontend |  Next.js :3000
+                        |  (Privy)  |  Dashboard, Markets, Trades, Wallet
+                        +-----+-----+
+                              |
+                              | REST (Bearer token)
+                              v
+                     +--------+--------+
+                     |    Platform     |  Hono :4000
+                     |  (multi-tenant) |  Auth, Agent mgmt, Wallet custody
+                     +--------+--------+
+                              |
+              +---------------+---------------+
+              |               |               |
+     +--------v--+    +------v------+   +----v--------+
+     |  Scanner  |    |   Agent     |   |   Deposit   |
+     |  Service  |    |   Manager   |   |   Watcher   |
+     +--------+--+    +------+------+   +-------------+
+              |               |
+     (quotes every 5s)  (per-user agents)
+              |               |
+    +---------+---------+     |
+    |         |         |     |
++---v---+ +---v----+ +--v--+ |
+|Predict| |Probable| |Opin.| |
+| CLOB  | | CLOB   | |CLOB | |
++-------+ +--------+ +-----+ |
+    BSC mainnet (chain 56)    |
+                              v
+                  +---------------------+
+                  |  Matching Engine     |
+                  |  3-pass: conditionId |
+                  |  -> template -> sim  |
+                  +---------------------+
 ```
 
-## Key Features
+## How It Works
 
-- **Cross-market arbitrage detection** -- scans multiple prediction markets for price discrepancies on equivalent events
-- **AI semantic event matching** -- uses OpenAI embeddings to identify when different platforms list the same real-world event under different descriptions
-- **Delta-neutral execution** -- buys YES on the underpriced market and NO on the overpriced market, locking in profit regardless of outcome
-- **On-chain circuit breakers** -- daily trade limits, daily loss caps, per-position size caps, and cooldown periods enforced at the contract level
-- **Yield rotation** -- reallocates capital across protocols based on risk-adjusted returns using Kelly criterion sizing
-- **Real-time dashboard** -- live arbitrage scanner, position tracking, P&L attribution, and agent control panel
-- **Unified protocol interface** -- adapter pattern normalizes CLOB, AMM, and bonding curve markets into a single interface
+If the same binary event is priced differently across two platforms, you can buy YES on one and NO on the other. When the combined cost is less than $1.00, the profit is guaranteed regardless of outcome.
 
-## Supported Protocols
+```
+Example: "Will Portugal win FIFA World Cup?"
 
-| Protocol     | Type          | Status       |
-|------------- |-------------- |------------- |
-| Opinion      | CLOB          | Live         |
-| Predict.fun  | CLOB          | Live         |
-| Probable     | AMM (zero-fee)| Live         |
-| XO Market    | Bonding Curve | Coming Soon  |
-| Bento        | Social/UGC    | Coming Soon  |
+  Predict.fun:  YES = $0.068
+  Probable:     NO  = $0.899
+  Total cost:   $0.967
+  Payout:       $1.00
+  Profit:       $0.014 (1.5% ROI, after 2% + 1.75% fees)
+```
+
+The agent finds these spreads automatically, matches equivalent markets across platforms using the matching engine, and executes both legs sequentially — unreliable leg first (Probable/Opinion), reliable leg (Predict) only if the first fills.
+
+## Supported Platforms
+
+| Platform    | Type | Fees    | Auth                | Status |
+|-------------|------|---------|---------------------|--------|
+| Predict.fun | CLOB | 200 bps | API key + JWT       | Live   |
+| Probable    | CLOB | 175 bps | HMAC L2 + Safe proxy| Live   |
+| Opinion Labs| CLOB | 200 bps | API key             | Live   |
+
+All three use Gnosis Conditional Token Framework (CTF) — ERC-1155 outcome tokens on BSC.
 
 ## Quick Start
 
-### Docker (recommended)
-
 ```bash
-docker compose up
-```
+# Install
+pnpm install
 
-This starts Anvil (local chain), deploys contracts, launches the agent, and serves the frontend at `http://localhost:3000`.
+# Build all packages
+pnpm build
 
-### Manual
+# Run tests
+pnpm test
 
-```bash
-# 1. Start local chain
-anvil
+# Start platform API (port 4000)
+cd packages/platform && pnpm dev
 
-# 2. Deploy contracts
-cd packages/contracts && forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
-
-# 3. Start agent
-cd packages/agent && cp .env.example .env && pnpm dev
-
-# 4. Start frontend
+# Start frontend (port 3000)
 cd packages/frontend && pnpm dev
 ```
+
+Requires a `.env` in each package — see `.env.example` files.
 
 ## Project Structure
 
 ```
 packages/
-  contracts/     Solidity vault, adapters, and protocol interfaces (Foundry)
-  agent/         AI arbitrage agent with market scanning and trade execution (Node.js)
-  frontend/      Real-time dashboard for monitoring and controlling the agent (Next.js)
+  agent/         Arbitrage engine: discovery, matching, detection, execution
+  platform/      Multi-tenant API: auth, agent mgmt, wallet custody, scanner
+  frontend/      Next.js dashboard: markets, trades, agent control, wallet
+  shared/        Drizzle ORM schema, shared types, migrations
+  contracts/     Solidity vault + protocol adapters (Foundry)
 ```
 
-## How It Works
+### Agent Package
 
-If the same binary event is priced differently across two markets, you can buy the underpriced outcome on one and the opposite outcome on the other. When the combined cost is less than $1.00, the profit is guaranteed regardless of the event outcome. For example: if "BTC > $150K by June" trades at YES = $0.55 on Predict.fun and NO = $0.38 on Opinion, the total cost is $0.93 -- yielding $0.07 guaranteed profit (7.5% ROI) no matter what happens. The agent finds these spreads automatically using semantic matching to pair equivalent events across protocols, then executes both legs atomically through the on-chain vault.
+```
+src/
+  matching-engine/     3-pass market matcher (conditionId, template, similarity)
+    normalizer.ts      Unicode confusable replacement, NFKD, year stripping
+    index.ts           Jaccard + Dice similarity, template extraction, matchMarkets()
+  discovery/
+    pipeline.ts        Fetch all 3 platforms, run matching, build market maps
+  clob/
+    predict-client.ts  Predict.fun CLOB (JWT auth, EIP-712 orders)
+    probable-client.ts Probable CLOB (HMAC L2, Safe proxy, nonce mgmt)
+    opinion-client.ts  Opinion CLOB (API key auth, ERC-1155 settlement)
+  providers/           MarketProvider implementations (fetch orderbook quotes)
+  arbitrage/
+    detector.ts        Cross-protocol spread detection with fee accounting
+  execution/
+    executor.ts        Sequential execution: unreliable leg first, then reliable
+```
 
-## Safety
+### Platform Package
 
-All risk controls are enforced on-chain in `ProphitVault.sol`:
+```
+src/
+  api/
+    server.ts          Hono app: CORS, rate limiting, auth middleware
+    routes/            /auth, /agent, /wallet, /trades, /markets, /me
+  agents/
+    agent-manager.ts   Per-user agent lifecycle (start/stop, CLOB client init)
+  scanner/
+    service.ts         Continuous quote fetching from all 3 platforms
+    quote-store.ts     In-memory quote + title + link storage
+  wallets/
+    deposit-watcher.ts On-chain deposit monitoring
+    withdrawal.ts      Privy-signed withdrawal processing
+  auth/
+    middleware.ts       Privy token verification
+```
 
-- **Per-position size cap** -- limits USDT deployed per trade (default: 500 USDT)
-- **Total exposure cap** -- aggregate limit across all open positions
-- **Daily trade limit** -- max trades per 24-hour rolling window
-- **Daily loss limit** -- auto-pauses agent if cumulative realized losses exceed threshold
-- **Cooldown period** -- minimum seconds between consecutive trades
-- **Emergency pause** -- owner can freeze all activity instantly via `pause()`
-- **Slippage protection** -- trades are simulated via `eth_call` before execution; aborted if slippage exceeds tolerance
+### Frontend Pages
 
-## Tech Stack
+| Route        | Description                                      |
+|--------------|--------------------------------------------------|
+| `/dashboard` | Agent overview, recent trades, PnL               |
+| `/markets`   | Live market browser with protocol links and prices|
+| `/trades`    | Trade history with expandable leg details         |
+| `/agent`     | Start/stop agent, configure thresholds            |
+| `/wallet`    | USDT/BNB balances, deposit address, withdrawals   |
 
-| Layer      | Technologies                                                         |
-|----------- |--------------------------------------------------------------------- |
-| Contracts  | Solidity 0.8.24, Foundry, OpenZeppelin 5.x (Ownable2Step, Pausable, ReentrancyGuard) |
-| Agent      | Node.js 20, TypeScript, viem, Hono, OpenAI SDK                      |
-| Frontend   | Next.js 14, React 18, wagmi v2, TanStack Query, Tailwind CSS        |
+## Matching Engine
 
-## Testing
+Markets across platforms use different titles for the same event. The matching engine finds equivalent pairs using a 3-pass algorithm:
 
-213 tests across the stack:
+1. **conditionId** — Exact hash match (same underlying CTF condition)
+2. **Template extraction** — Pattern-based matching (e.g. "Will X launch a token by Y?") with entity/params normalization
+3. **Composite similarity** — max(Jaccard word-level, Dice bigram) above 0.85 threshold, with a template guard to prevent false positives
 
-- **120 contract tests** (Foundry) -- vault logic, all three protocol adapters, circuit breakers, fuzz tests
-- **82 agent tests** (Vitest) -- arbitrage detection, event matching, yield rotation, persistence, retries
-- **11 frontend tests** (Vitest + Testing Library) -- components, hooks, error boundaries
+Normalization handles Unicode confusables (Cyrillic/Greek lookalikes), NFKD decomposition, year stripping, and digit separator collapsing.
 
-CI runs on every push and PR via GitHub Actions: contract build/test, agent typecheck/test, frontend build.
+Production results: **102 matches** from ~2,500 markets across 3 platforms, 0 false positives.
+
+## Execution Model
+
+```
+1. Scanner fetches quotes every 5s from all providers
+2. Agent detects spread > minSpreadBps (50 bps default)
+3. Spread filter: 50-400 bps band (below = noise, above = likely false match)
+4. Execute unreliable leg first (Probable/Opinion — thin orderbooks, FOK)
+5. If filled → execute reliable leg (Predict — deeper liquidity)
+6. If unreliable leg fails → $0 cost, move on
+7. Track position: OPEN → FILLED → CLOSED on resolution
+```
 
 ## Configuration
 
-Copy `.env.example` and fill in your values:
-
-```bash
-cp packages/agent/.env.example packages/agent/.env
-```
-
 Key environment variables:
 
-| Variable                | Description                              |
-|------------------------ |----------------------------------------- |
-| `RPC_URL`               | BNB Chain RPC endpoint                   |
-| `PRIVATE_KEY`           | Agent wallet private key                 |
-| `VAULT_ADDRESS`         | Deployed ProphitVault contract address   |
-| `OPENAI_API_KEY`        | OpenAI key for semantic event matching   |
-| `MIN_SPREAD_BPS`        | Minimum spread to trigger a trade (bps)  |
-| `MAX_POSITION_SIZE`     | Max USDT per position (6 decimals)       |
-| `SCAN_INTERVAL_MS`      | Milliseconds between market scans        |
-| `OPINION_API_KEY`       | Opinion protocol API key                 |
-| `PREDICT_API_KEY`       | Predict.fun API key                      |
+| Variable              | Description                           | Default  |
+|-----------------------|---------------------------------------|----------|
+| `PREDICT_API_KEY`     | Predict.fun API key                   | required |
+| `OPINION_API_KEY`     | Opinion Labs API key                  | optional |
+| `DISABLE_PROBABLE`    | Skip Probable provider                | false    |
+| `MIN_SPREAD_BPS`      | Minimum spread to trade               | 50       |
+| `MAX_SPREAD_BPS`      | Maximum spread (filters false matches)| 400      |
+| `SCAN_INTERVAL_MS`    | Quote polling interval (ms)           | 5000     |
+| `DRY_RUN`             | Log trades without executing          | false    |
+| `DAILY_LOSS_LIMIT`    | Max daily loss in USDT                | 50       |
+| `DATABASE_URL`        | PostgreSQL connection string          | required |
+| `PRIVY_APP_ID`        | Privy auth app ID                     | required |
+| `PRIVY_APP_SECRET`    | Privy auth secret                     | required |
+
+## Testing
+
+```bash
+pnpm test                    # all packages
+pnpm --filter agent test     # agent only (85+ tests)
+pnpm --filter frontend test  # frontend only
+```
+
+Key test suites:
+- `matching-engine.test.ts` — 58 tests (normalization, similarity, template extraction, regression cases)
+- `discovery.test.ts` — 27 tests (pipeline, multi-platform matching)
+- `executor-clob.test.ts` — Sequential execution, fill polling, partial fill handling
+- `detector.test.ts` — Spread detection, fee accounting
+
+## Tech Stack
+
+| Layer    | Technologies                                             |
+|----------|----------------------------------------------------------|
+| Agent    | Node.js 22, TypeScript, viem                             |
+| Platform | Hono, Drizzle ORM, PostgreSQL, Privy SDK                 |
+| Frontend | Next.js 15, React 19, TanStack Query, Tailwind CSS      |
+| Auth     | Privy (embedded wallets, delegated signing)              |
+| Chain    | BSC mainnet (56), Gnosis CTF (ERC-1155)                  |
 
 ## License
 

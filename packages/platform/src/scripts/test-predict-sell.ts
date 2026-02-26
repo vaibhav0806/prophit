@@ -143,9 +143,9 @@ async function main() {
     console.log(`  Exchange: ${pos.exchange}`);
     console.log(header());
 
-    // Compute sell price at 5% discount, rounded to 4dp
-    const sellPrice = Math.round(pos.buyPrice * (1 - DISCOUNT) * 1000) / 1000; // 3dp — Predict max
-    const sellSize = pos.costBasis; // sell $4 worth
+    // Compute sell price at 5% discount, rounded to 3dp
+    const sellPrice = Math.round(pos.buyPrice * (1 - DISCOUNT) * 1000) / 1000;
+    const sellSize = pos.costBasis;
     console.log(`  Sell price: $${sellPrice} (${DISCOUNT * 100}% discount from $${pos.buyPrice})`);
     console.log(`  Sell size: $${sellSize}`);
 
@@ -161,7 +161,6 @@ async function main() {
       expirationSec: EXPIRATION_SEC,
       nonce: 0n,
       scale: Number(PREDICT_SCALE),
-      // No slippageBps, no quantize — this is the LIMIT path
     });
 
     console.log();
@@ -170,68 +169,39 @@ async function main() {
     console.log(`    takerAmount: ${order.takerAmount} (USDT to receive)`);
     console.log(`    side: ${order.side} (1 = SELL)`);
 
-    // Verify the price ratio
     const impliedPrice = Number(order.takerAmount) / Number(order.makerAmount);
     console.log(`    implied price: ${impliedPrice}`);
     console.log(`    target price:  ${sellPrice}`);
     console.log(`    ratio match: ${Math.abs(impliedPrice - sellPrice) < 1e-10 ? "YES" : "NO (!!)"}`);
 
     // Sign the order
-    const { signature: orderSignature } = await signOrder(
-      walletClient,
-      order,
-      chainId,
-      pos.exchange,
-      PREDICT_DOMAIN_NAME,
-    );
+    const { signature: orderSignature } = await signOrder(walletClient, order, chainId, pos.exchange, PREDICT_DOMAIN_NAME);
 
     // Compute EIP-712 hash
     const orderHash = hashTypedData({
-      domain: {
-        name: PREDICT_DOMAIN_NAME,
-        version: "1",
-        chainId,
-        verifyingContract: pos.exchange,
-      },
+      domain: { name: PREDICT_DOMAIN_NAME, version: "1", chainId, verifyingContract: pos.exchange },
       types: ORDER_EIP712_TYPES,
       primaryType: "Order",
       message: {
-        salt: order.salt,
-        maker: order.maker,
-        signer: order.signer,
-        taker: order.taker,
-        tokenId: order.tokenId,
-        makerAmount: order.makerAmount,
-        takerAmount: order.takerAmount,
-        expiration: order.expiration,
-        nonce: order.nonce,
-        feeRateBps: order.feeRateBps,
-        side: order.side,
-        signatureType: order.signatureType,
+        salt: order.salt, maker: order.maker, signer: order.signer, taker: order.taker,
+        tokenId: order.tokenId, makerAmount: order.makerAmount, takerAmount: order.takerAmount,
+        expiration: order.expiration, nonce: order.nonce, feeRateBps: order.feeRateBps,
+        side: order.side, signatureType: order.signatureType,
       },
     });
 
-    // Build payload — LIMIT strategy, GTC (isFillOrKill: false)
     const pricePerShare = (BigInt(Math.round(sellPrice * 1e8)) * 10_000_000_000n).toString();
     console.log(`    pricePerShare: ${pricePerShare}`);
 
     const payload = {
       data: {
         order: {
-          salt: order.salt.toString(),
-          maker: getAddress(order.maker),
-          signer: getAddress(order.signer),
-          taker: order.taker,
-          tokenId: order.tokenId.toString(),
-          makerAmount: order.makerAmount.toString(),
-          takerAmount: order.takerAmount.toString(),
-          expiration: order.expiration.toString(),
-          nonce: order.nonce.toString(),
-          feeRateBps: order.feeRateBps.toString(),
-          side: order.side,
-          signatureType: order.signatureType,
-          signature: orderSignature,
-          hash: orderHash,
+          salt: order.salt.toString(), maker: getAddress(order.maker), signer: getAddress(order.signer),
+          taker: order.taker, tokenId: order.tokenId.toString(),
+          makerAmount: order.makerAmount.toString(), takerAmount: order.takerAmount.toString(),
+          expiration: order.expiration.toString(), nonce: order.nonce.toString(),
+          feeRateBps: order.feeRateBps.toString(), side: order.side,
+          signatureType: order.signatureType, signature: orderSignature, hash: orderHash,
         },
         pricePerShare,
         strategy: "LIMIT",
@@ -239,28 +209,22 @@ async function main() {
       },
     };
 
-    // Place the order
     console.log();
     console.log("  Placing LIMIT SELL order...");
     const orderRes = await predictFetch("/v1/orders", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${jwt}`,
-      },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
       body: JSON.stringify(payload),
     });
     const orderResBody = await orderRes.text();
     console.log(`  POST /v1/orders => ${orderRes.status} ${orderRes.statusText}`);
     console.log(`  Response: ${orderResBody}`);
 
-    // Verdict
     console.log();
     if (orderRes.status === 201 || orderRes.status === 200) {
       console.log(`  ✅ ORDER ACCEPTED — Bug 2 fix VERIFIED for ${pos.label}`);
       console.log("     NonMatchingAmountsError is gone!");
 
-      // Cancel the order immediately (we don't actually want to sell)
       try {
         const resJson = JSON.parse(orderResBody);
         const orderId = resJson?.data?.orderId ?? resJson?.orderId;

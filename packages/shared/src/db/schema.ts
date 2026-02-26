@@ -25,6 +25,7 @@ export const userConfigs = pgTable("user_configs", {
   minTradeSize: bigint("min_trade_size", { mode: "bigint" }).notNull().default(sql`5`), // $5 USDT
   maxTradeSize: bigint("max_trade_size", { mode: "bigint" }).notNull().default(sql`100`), // $100 USDT
   minSpreadBps: integer("min_spread_bps").notNull().default(100),
+  maxSpreadBps: integer("max_spread_bps").notNull().default(400),
   maxTotalTrades: integer("max_total_trades"), // null = unlimited
   tradingDurationMs: bigint("trading_duration_ms", { mode: "bigint" }), // null = unlimited
   tradingStartedAt: timestamp("trading_started_at"),

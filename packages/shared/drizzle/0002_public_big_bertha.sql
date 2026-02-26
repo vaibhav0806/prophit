@@ -1,0 +1,1 @@
+ALTER TABLE "user_configs" ADD COLUMN "max_spread_bps" integer DEFAULT 400 NOT NULL;

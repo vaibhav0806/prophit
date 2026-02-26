@@ -149,6 +149,7 @@ export class AgentManager {
 
     const agentConfig: AgentInstanceConfig = {
       minSpreadBps: params.config.minSpreadBps,
+      maxSpreadBps: params.config.maxSpreadBps ?? 400,
       maxPositionSize: params.config.maxTradeSize * 1_000_000n, // Convert human-readable to 6-decimal USDT
       minTradeSize: params.config.minTradeSize * 1_000_000n, // Convert human-readable to 6-decimal USDT
       scanIntervalMs: 5000,

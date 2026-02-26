@@ -69,6 +69,7 @@ export default function SettingsPage() {
   const [minTradeSize, setMinTradeSize] = useState('')
   const [maxTradeSize, setMaxTradeSize] = useState('')
   const [minSpreadPct, setMinSpreadPct] = useState(1)
+  const [maxSpreadPct, setMaxSpreadPct] = useState(4)
   const [maxTotalTrades, setMaxTotalTrades] = useState('')
   const [unlimitedTrades, setUnlimitedTrades] = useState(true)
   const [tradingDuration, setTradingDuration] = useState('')
@@ -93,6 +94,7 @@ export default function SettingsPage() {
     setMinTradeSize(parseUsdt(config.minTradeSize))
     setMaxTradeSize(parseUsdt(config.maxTradeSize))
     setMinSpreadPct(config.minSpreadBps / 100)
+    setMaxSpreadPct((config.maxSpreadBps ?? 400) / 100)
     setUnlimitedTrades(config.maxTotalTrades === null)
     setMaxTotalTrades(config.maxTotalTrades !== null ? String(config.maxTotalTrades) : '')
     setTradingDuration(config.tradingDurationMs ?? '')
@@ -124,6 +126,7 @@ export default function SettingsPage() {
       minTradeSize: minTradeSize,
       maxTradeSize: maxTradeSize,
       minSpreadBps: Math.round(minSpreadPct * 100),
+      maxSpreadBps: Math.round(maxSpreadPct * 100),
       maxTotalTrades: unlimitedTrades ? null : Number(maxTotalTrades) || null,
       tradingDurationMs: tradingDuration || null,
       dailyLossLimit: dailyLossLimit,
@@ -241,6 +244,32 @@ export default function SettingsPage() {
                 <span>0.5%</span>
                 <span>10%</span>
               </div>
+            </div>
+
+            {/* Max spread slider */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium">
+                  Maximum Profit Margin
+                </label>
+                <span className="text-sm font-mono tabular-nums text-[#F0B90B]">
+                  {maxSpreadPct.toFixed(1)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={10}
+                step={0.1}
+                value={maxSpreadPct}
+                onChange={(e) => { setMaxSpreadPct(parseFloat(e.target.value)); markDirty() }}
+                className="w-full h-1.5 rounded-full cursor-pointer"
+              />
+              <div className="flex justify-between text-[10px] text-gray-600 mt-1">
+                <span>1%</span>
+                <span>10%</span>
+              </div>
+              <p className="text-[11px] text-gray-600 mt-1.5">Spreads above this are likely illiquid traps — skip them</p>
             </div>
 
             {/* Max total trades */}

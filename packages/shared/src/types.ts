@@ -6,6 +6,7 @@ export interface UserAgentConfig {
   minTradeSize: bigint;
   maxTradeSize: bigint;
   minSpreadBps: number;
+  maxSpreadBps: number;
   maxTotalTrades: number | null;
   tradingDurationMs: bigint | null;
   dailyLossLimit: bigint;

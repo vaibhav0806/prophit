@@ -30,6 +30,7 @@ export function createConfigRoutes(db: Database): Hono<AuthEnv> {
         minTradeSize: config.minTradeSize.toString(),
         maxTradeSize: config.maxTradeSize.toString(),
         minSpreadBps: config.minSpreadBps,
+        maxSpreadBps: config.maxSpreadBps,
         maxTotalTrades: config.maxTotalTrades,
         tradingDurationMs: config.tradingDurationMs?.toString() ?? null,
         dailyLossLimit: config.dailyLossLimit.toString(),
@@ -46,6 +47,7 @@ export function createConfigRoutes(db: Database): Hono<AuthEnv> {
       minTradeSize?: string;
       maxTradeSize?: string;
       minSpreadBps?: number;
+      maxSpreadBps?: number;
       maxTotalTrades?: number | null;
       tradingDurationMs?: string | null;
       dailyLossLimit?: string;
@@ -73,6 +75,12 @@ export function createConfigRoutes(db: Database): Hono<AuthEnv> {
         return c.json({ error: "minSpreadBps must be between 1 and 10000" }, 400);
       }
       updates.minSpreadBps = body.minSpreadBps;
+    }
+    if (body.maxSpreadBps !== undefined) {
+      if (body.maxSpreadBps < 1 || body.maxSpreadBps > 10000) {
+        return c.json({ error: "maxSpreadBps must be between 1 and 10000" }, 400);
+      }
+      updates.maxSpreadBps = body.maxSpreadBps;
     }
     if (body.maxTotalTrades !== undefined) updates.maxTotalTrades = body.maxTotalTrades;
     if (body.tradingDurationMs !== undefined) {

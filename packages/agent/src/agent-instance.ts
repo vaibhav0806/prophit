@@ -17,6 +17,7 @@ export interface QuoteStore {
 
 export interface AgentInstanceConfig {
   minSpreadBps: number;
+  maxSpreadBps?: number;
   maxPositionSize: bigint;
   minTradeSize?: bigint;
   scanIntervalMs: number;
@@ -109,6 +110,7 @@ export class AgentInstance {
 
   // Mutable config
   private minSpreadBps: number;
+  private maxSpreadBps: number;
   private maxPositionSize: bigint;
   private scanIntervalMs: number;
   private executionMode: "vault" | "clob";
@@ -152,6 +154,7 @@ export class AgentInstance {
     this.clobInitPromise = params.clobInitPromise;
 
     this.minSpreadBps = params.config.minSpreadBps;
+    this.maxSpreadBps = params.config.maxSpreadBps ?? 400;
     this.maxPositionSize = params.config.maxPositionSize;
     this.scanIntervalMs = params.config.scanIntervalMs;
     this.executionMode = params.config.executionMode;
@@ -196,6 +199,7 @@ export class AgentInstance {
       uptime: Date.now() - this.startedAt,
       config: {
         minSpreadBps: this.minSpreadBps,
+        maxSpreadBps: this.maxSpreadBps,
         maxPositionSize: this.maxPositionSize.toString(),
         scanIntervalMs: this.scanIntervalMs,
         executionMode: this.executionMode,
@@ -205,6 +209,7 @@ export class AgentInstance {
 
   updateConfig(update: {
     minSpreadBps?: number;
+    maxSpreadBps?: number;
     maxPositionSize?: string;
     scanIntervalMs?: number;
   }): void {
@@ -214,6 +219,13 @@ export class AgentInstance {
       }
       this.minSpreadBps = update.minSpreadBps;
       log.info("Updated minSpreadBps", { minSpreadBps: this.minSpreadBps });
+    }
+    if (update.maxSpreadBps !== undefined) {
+      if (update.maxSpreadBps < 1 || update.maxSpreadBps > 10000) {
+        throw new Error('maxSpreadBps must be between 1 and 10000');
+      }
+      this.maxSpreadBps = update.maxSpreadBps;
+      log.info("Updated maxSpreadBps", { maxSpreadBps: this.maxSpreadBps });
     }
     if (update.maxPositionSize !== undefined) {
       const size = BigInt(update.maxPositionSize);
@@ -366,7 +378,7 @@ export class AgentInstance {
         });
 
         // Filter by minSpreadBps
-        const actionable = detected.filter((o) => o.spreadBps >= this.minSpreadBps);
+        const actionable = detected.filter((o) => o.spreadBps >= this.minSpreadBps && o.spreadBps <= this.maxSpreadBps);
         const fresh = actionable.filter((o) => !this.isRecentlyTraded(o));
 
         log.info("[DEBUG] Filtering", {

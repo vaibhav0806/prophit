@@ -63,6 +63,7 @@ export interface AgentStatus {
   uptime: number;
   config: {
     minSpreadBps: number;
+    maxSpreadBps: number;
     maxPositionSize: string;
     scanIntervalMs: number;
     executionMode: ExecutionMode;

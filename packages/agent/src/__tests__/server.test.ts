@@ -29,6 +29,7 @@ const mockStatus: AgentStatus = {
   uptime: 60000,
   config: {
     minSpreadBps: 100,
+    maxSpreadBps: 400,
     maxPositionSize: "500000000",
     scanIntervalMs: 5000,
     executionMode: "clob",

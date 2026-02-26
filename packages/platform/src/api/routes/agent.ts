@@ -138,6 +138,7 @@ export function createAgentRoutes(params: {
           minTradeSize: config.minTradeSize,
           maxTradeSize: config.maxTradeSize,
           minSpreadBps: config.minSpreadBps,
+          maxSpreadBps: config.maxSpreadBps,
           maxTotalTrades: config.maxTotalTrades,
           tradingDurationMs: config.tradingDurationMs,
           dailyLossLimit: config.dailyLossLimit,

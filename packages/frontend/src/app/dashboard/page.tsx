@@ -311,8 +311,10 @@ export default function DashboardPage() {
                           key={trade.id}
                           className={`transition-colors hover:bg-[#1A1A1A]/60 ${isBest ? 'row-glow' : ''}`}
                         >
-                          <td className="px-6 py-3.5 font-mono text-xs text-gray-400">
-                            {truncateAddress(trade.marketId)}
+                          <td className="px-6 py-3.5">
+                            <div className="text-xs text-gray-300 max-w-[200px] truncate" title={trade.marketTitle ?? trade.marketId}>
+                              {trade.marketTitle ?? truncateAddress(trade.marketId)}
+                            </div>
                           </td>
                           <td className="px-4 py-3.5">
                             <StatusBadge status={trade.status} />

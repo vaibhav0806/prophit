@@ -142,10 +142,16 @@ export function useMarkets() {
       updatedAt: number;
       opportunities: Array<{
         marketId: string;
+        title: string | null;
+        links: { predict?: string; probable?: string; opinion?: string } | null;
         protocolA: string;
         protocolB: string;
+        buyYesOnA: boolean;
+        yesPriceA: string;
+        noPriceB: string;
         spreadBps: number;
         grossSpreadBps: number;
+        feesDeducted: string;
         estProfit: string;
         totalCost: string;
         liquidityA: string;
@@ -157,23 +163,41 @@ export function useMarkets() {
 }
 
 // --- Trades ---
+export interface TradeLeg {
+  platform: string;
+  orderId: string;
+  tokenId: string;
+  side: "BUY" | "SELL";
+  price: number;
+  size: number;
+  filled: boolean;
+  filledSize: number;
+  transactionHash?: string;
+  marketId?: string;
+}
+
+export interface Trade {
+  id: string;
+  marketId: string;
+  status: string;
+  legA: TradeLeg | null;
+  legB: TradeLeg | null;
+  totalCost: number;
+  expectedPayout: number;
+  spreadBps: number;
+  pnl: number | null;
+  openedAt: string;
+  closedAt: string | null;
+  marketTitle: string | null;
+  marketCategory: string | null;
+  resolvesAt: string | null;
+}
+
 export function useTrades(limit = 50, offset = 0) {
   return useQuery({
     queryKey: ["trades", limit, offset],
     queryFn: () => apiFetch<{
-      trades: Array<{
-        id: string;
-        marketId: string;
-        status: string;
-        legA: unknown;
-        legB: unknown;
-        totalCost: number;
-        expectedPayout: number;
-        spreadBps: number;
-        pnl: number | null;
-        openedAt: string;
-        closedAt: string | null;
-      }>;
+      trades: Trade[];
       limit: number;
       offset: number;
     }>(`/api/trades?limit=${limit}&offset=${offset}`),

@@ -6,21 +6,22 @@ import { useTrades } from '@/hooks/use-platform-api'
 import type { Trade, TradeLeg } from '@/hooks/use-platform-api'
 import { useAuth } from '@/hooks/use-auth'
 import { formatUSD, truncateAddress, formatRelativeTime } from '@/lib/format'
+import { ProtocolLogo } from '@/components/protocol-logos'
 
 const PAGE_SIZE = 20
 
 const STATUS_STYLES: Record<string, string> = {
-  OPEN: 'bg-[#F0B90B]/10 text-[#F0B90B] border-[#F0B90B]/20',
-  PARTIAL: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  FILLED: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
-  CLOSED: 'bg-[#1A1A1A]/60 text-gray-400 border-[#2A2A2A]',
-  EXPIRED: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  OPEN: 'text-[#00D4FF] bg-[#00D4FF]/6 border-[#00D4FF]/12',
+  PARTIAL: 'text-blue-400 bg-blue-500/6 border-blue-500/12',
+  FILLED: 'text-cyan-400 bg-cyan-500/6 border-cyan-500/12',
+  CLOSED: 'text-[#6B7280] bg-[#191C24] border-[#262D3D]',
+  EXPIRED: 'text-amber-400/80 bg-amber-500/6 border-amber-500/12',
 }
 
 function StatusBadge({ status }: { status: string }) {
   const style = STATUS_STYLES[status] || STATUS_STYLES.CLOSED
   return (
-    <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-medium uppercase tracking-wide border ${style}`}>
+    <span className={`inline-block text-[10px] px-1.5 py-px rounded font-mono font-medium uppercase tracking-wider border ${style}`}>
       {status}
     </span>
   )
@@ -28,22 +29,13 @@ function StatusBadge({ status }: { status: string }) {
 
 function PnlCell({ pnl }: { pnl: number | null }) {
   if (pnl === null) {
-    return <span className="text-gray-600 font-mono tabular-nums">&mdash;</span>
+    return <span className="text-[#262D3D] font-mono tabular-nums">&mdash;</span>
   }
   const isPositive = pnl > 0
   const isNegative = pnl < 0
   return (
-    <span className={`font-mono tabular-nums font-medium ${isPositive ? 'text-[#00FF88]' : isNegative ? 'text-[#FF4757]' : 'text-gray-400'}`}>
+    <span className={`font-mono tabular-nums font-medium ${isPositive ? 'text-[#22C55E]' : isNegative ? 'text-[#EF4444]' : 'text-[#6B7280]'}`}>
       {isPositive ? '+' : ''}{formatUSD(pnl, 2)}
-    </span>
-  )
-}
-
-function PlatformBadge({ name }: { name: string }) {
-  const label = name.charAt(0).toUpperCase() + name.slice(1).toLowerCase()
-  return (
-    <span className="inline-block px-1.5 py-px rounded text-[9px] font-medium uppercase tracking-wider border border-[#2A2A2A] text-gray-500 bg-[#0A0A0A]">
-      {label}
     </span>
   )
 }
@@ -51,57 +43,59 @@ function PlatformBadge({ name }: { name: string }) {
 function LegDetail({ leg, label }: { leg: TradeLeg | null; label: string }) {
   if (!leg) {
     return (
-      <div className="flex-1 min-w-0 p-3 rounded-lg bg-[#0A0A0A] border border-[#1A1A1A]">
-        <div className="text-[10px] uppercase tracking-wider text-gray-600 mb-2">{label}</div>
-        <div className="text-xs text-gray-600">No data</div>
+      <div className="flex-1 min-w-0 p-3 rounded border border-[#1C2030] bg-[#0B0D11]">
+        <div className="text-[11px] uppercase tracking-wider text-[#3D4350] mb-2">{label}</div>
+        <div className="text-[13px] text-[#3D4350]">No data</div>
       </div>
     )
   }
 
-  const platformLabel = leg.platform.charAt(0).toUpperCase() + leg.platform.slice(1).toLowerCase()
-  const sideColor = leg.side === 'BUY' ? 'text-[#00FF88]' : 'text-[#FF4757]'
+  const sideColor = leg.side === 'BUY' ? 'text-[#22C55E]' : 'text-[#EF4444]'
 
   return (
-    <div className="flex-1 min-w-0 p-3 rounded-lg bg-[#0A0A0A] border border-[#1A1A1A]">
+    <div className="flex-1 min-w-0 p-3 rounded border border-[#1C2030] bg-[#0B0D11]">
       <div className="flex items-center justify-between mb-2.5">
-        <div className="text-[10px] uppercase tracking-wider text-gray-600">{label}</div>
-        <span className="text-[10px] font-medium uppercase tracking-wider px-1.5 py-px rounded border border-[#2A2A2A] text-gray-400">
-          {platformLabel}
-        </span>
+        <div className="text-[11px] uppercase tracking-wider text-[#3D4350]">{label}</div>
+        <div className="flex items-center gap-1.5">
+          <ProtocolLogo name={leg.platform} size={14} />
+          <span className="text-[11px] font-mono text-[#3D4350] uppercase tracking-wider">
+            {leg.platform.charAt(0).toUpperCase() + leg.platform.slice(1).toLowerCase()}
+          </span>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[13px]">
         <div>
-          <span className="text-gray-600">Side </span>
+          <span className="text-[#3D4350]">Side </span>
           <span className={`font-medium ${sideColor}`}>{leg.side}</span>
         </div>
         <div>
-          <span className="text-gray-600">Price </span>
-          <span className="font-mono tabular-nums text-gray-300">{leg.price.toFixed(4)}</span>
+          <span className="text-[#3D4350]">Price </span>
+          <span className="font-mono tabular-nums text-[#E0E2E9]">{leg.price.toFixed(4)}</span>
         </div>
         <div>
-          <span className="text-gray-600">Size </span>
-          <span className="font-mono tabular-nums text-gray-300">{leg.size.toFixed(2)}</span>
+          <span className="text-[#3D4350]">Size </span>
+          <span className="font-mono tabular-nums text-[#E0E2E9]">{leg.size.toFixed(2)}</span>
         </div>
         <div>
-          <span className="text-gray-600">Filled </span>
-          <span className="font-mono tabular-nums text-gray-300">{leg.filledSize.toFixed(2)}</span>
-          {leg.filled && <span className="text-[#00FF88] ml-1 text-[10px]">&#10003;</span>}
+          <span className="text-[#3D4350]">Filled </span>
+          <span className="font-mono tabular-nums text-[#E0E2E9]">{leg.filledSize.toFixed(2)}</span>
+          {leg.filled && <span className="text-[#22C55E] ml-1 text-[11px]">&#10003;</span>}
         </div>
       </div>
 
       {(leg.orderId || leg.transactionHash) && (
-        <div className="mt-2.5 pt-2 border-t border-[#1A1A1A] space-y-1">
+        <div className="mt-2.5 pt-2 border-t border-[#1C2030] space-y-1">
           {leg.orderId && (
-            <div className="text-[10px]">
-              <span className="text-gray-600">Order </span>
-              <span className="font-mono text-gray-500">{truncateAddress(leg.orderId, 6)}</span>
+            <div className="text-[11px]">
+              <span className="text-[#3D4350]">Order </span>
+              <span className="font-mono text-[#3D4350]">{truncateAddress(leg.orderId, 6)}</span>
             </div>
           )}
           {leg.transactionHash && (
-            <div className="text-[10px]">
-              <span className="text-gray-600">Tx </span>
-              <span className="font-mono text-gray-500">{truncateAddress(leg.transactionHash, 6)}</span>
+            <div className="text-[11px]">
+              <span className="text-[#3D4350]">Tx </span>
+              <span className="font-mono text-[#3D4350]">{truncateAddress(leg.transactionHash, 6)}</span>
             </div>
           )}
         </div>
@@ -114,8 +108,8 @@ function ExpandedRow({ trade }: { trade: Trade }) {
   return (
     <tr>
       <td colSpan={8} className="p-0">
-        <div className="px-4 pb-4 pt-0">
-          <div className="rounded-xl bg-[#0E0E0E] border border-[#1A1A1A] p-4 space-y-3">
+        <div className="px-4 pb-3 pt-0">
+          <div className="rounded border border-[#1C2030] bg-[#111318] p-4 space-y-3">
             {/* Legs side by side */}
             <div className="flex gap-3">
               <LegDetail leg={trade.legA} label="Leg A" />
@@ -123,24 +117,24 @@ function ExpandedRow({ trade }: { trade: Trade }) {
             </div>
 
             {/* Market details */}
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[10px] text-gray-600 pt-1">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] text-[#3D4350] pt-1">
               {trade.marketCategory && (
                 <div>
-                  <span className="text-gray-600">Category </span>
-                  <span className="text-gray-400">{trade.marketCategory}</span>
+                  <span className="text-[#3D4350]">Category </span>
+                  <span className="text-[#6B7280]">{trade.marketCategory}</span>
                 </div>
               )}
               {trade.resolvesAt && (
                 <div>
-                  <span className="text-gray-600">Resolves </span>
-                  <span className="text-gray-400 font-mono tabular-nums">
+                  <span className="text-[#3D4350]">Resolves </span>
+                  <span className="text-[#6B7280] font-mono tabular-nums">
                     {new Date(trade.resolvesAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                   </span>
                 </div>
               )}
               <div>
-                <span className="text-gray-600">ID </span>
-                <span className="font-mono text-gray-500">{truncateAddress(trade.marketId, 8)}</span>
+                <span className="text-[#3D4350]">ID </span>
+                <span className="font-mono text-[#3D4350]">{truncateAddress(trade.marketId, 8)}</span>
               </div>
             </div>
           </div>
@@ -152,27 +146,31 @@ function ExpandedRow({ trade }: { trade: Trade }) {
 
 function SkeletonTable() {
   return (
-    <div className="card rounded-2xl overflow-hidden">
-      <div className="p-4 border-b border-[#1F1F1F]">
-        <div className="flex items-center gap-3">
-          <div className="skeleton h-4 w-28" />
-          <div className="skeleton h-4 w-16 ml-auto" />
+    <div className="space-y-0">
+      <div className="flex items-center gap-4 py-2.5 px-1">
+        <div className="skeleton h-2 w-20" />
+        <div className="skeleton h-2 w-12" />
+        <div className="flex-1" />
+        <div className="skeleton h-2 w-12" />
+        <div className="skeleton h-2 w-14" />
+        <div className="skeleton h-2 w-10" />
+        <div className="skeleton h-2 w-12" />
+        <div className="skeleton h-2 w-12" />
+        <div className="skeleton h-2 w-12" />
+      </div>
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-4 py-3 px-1 border-t border-[#1C2030]/50">
+          <div className="skeleton h-3 w-44" />
+          <div className="skeleton h-4 w-14 rounded" />
+          <div className="flex-1" />
+          <div className="skeleton h-3 w-14" />
+          <div className="skeleton h-3 w-14" />
+          <div className="skeleton h-3 w-10" />
+          <div className="skeleton h-3 w-14" />
+          <div className="skeleton h-3 w-12" />
+          <div className="skeleton h-3 w-12" />
         </div>
-      </div>
-      <div className="divide-y divide-[#1F1F1F]">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="px-4 py-4 flex items-center gap-4">
-            <div className="skeleton h-3 w-24" />
-            <div className="skeleton h-5 w-16" />
-            <div className="skeleton h-3 w-16" />
-            <div className="skeleton h-3 w-16" />
-            <div className="skeleton h-3 w-12" />
-            <div className="skeleton h-3 w-16 ml-auto" />
-            <div className="skeleton h-3 w-14" />
-            <div className="skeleton h-3 w-14" />
-          </div>
-        ))}
-      </div>
+      ))}
     </div>
   )
 }
@@ -220,51 +218,41 @@ export default function TradesPage() {
   if (!isReady || !isAuthenticated) return null
 
   return (
-    <div className="page-enter p-6 lg:p-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight heading-accent">Trade History</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            {allTrades.length > 0 && (
-              <span className="font-mono tabular-nums">{allTrades.length}</span>
-            )}
-            {allTrades.length > 0 ? ' trades loaded' : 'Past arbitrage executions'}
-          </p>
-        </div>
-      </div>
+    <div className="p-5 lg:p-6 page-enter">
+      <h1 className="text-xs font-semibold text-[#3D4350] uppercase tracking-[0.15em] mb-5">Trade History</h1>
 
       {isLoading && offset === 0 && <SkeletonTable />}
 
       {!isLoading && allTrades.length === 0 && (
-        <div className="card rounded-2xl p-12 text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#F0B90B]/5 border border-[#F0B90B]/10 mb-4">
-            <svg className="w-6 h-6 text-[#F0B90B]/40 spin-ring" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
-            </svg>
-          </div>
-          <div className="text-gray-400 font-medium">No trades yet</div>
-          <div className="text-sm text-gray-600 mt-1">Start the agent to begin executing arbitrage trades</div>
+        <div className="py-8 text-center">
+          <div className="text-xs font-mono text-[#262D3D]">NO TRADES YET</div>
+          <div className="text-[11px] text-[#1C2030] mt-1">Start the agent to begin executing arbitrage trades</div>
         </div>
       )}
 
       {allTrades.length > 0 && (
-        <div className="card rounded-2xl overflow-hidden">
+        <>
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-[11px] text-[#3D4350] uppercase tracking-[0.15em] font-semibold shrink-0">Executions</span>
+            <div className="flex-1 h-px bg-[#1C2030]" />
+            <span className="text-[11px] font-mono text-[#3D4350]">{allTrades.length} loaded</span>
+          </div>
+
           <div className="overflow-x-auto">
-            <table className="w-full text-sm table-gold">
+            <table className="w-full">
               <thead>
-                <tr className="border-b border-[#1F1F1F] text-[11px] uppercase tracking-wider text-gray-500">
-                  <th className="px-4 py-3 text-left font-medium">Market</th>
-                  <th className="px-4 py-3 text-left font-medium">Status</th>
-                  <th className="px-4 py-3 text-right font-medium">Cost</th>
-                  <th className="px-4 py-3 text-right font-medium">Expected Payout</th>
-                  <th className="px-4 py-3 text-right font-medium">Spread</th>
-                  <th className="px-4 py-3 text-right font-medium">P&L</th>
-                  <th className="px-4 py-3 text-right font-medium">Opened</th>
-                  <th className="px-4 py-3 text-right font-medium">Closed</th>
+                <tr className="text-[10px] text-[#3D4350] uppercase tracking-widest">
+                  <th className="pb-2 text-left font-medium">Market</th>
+                  <th className="pb-2 text-left font-medium">Status</th>
+                  <th className="pb-2 text-right font-medium">Cost</th>
+                  <th className="pb-2 text-right font-medium">Expected Payout</th>
+                  <th className="pb-2 text-right font-medium">Spread</th>
+                  <th className="pb-2 text-right font-medium">P&L</th>
+                  <th className="pb-2 text-right font-medium">Opened</th>
+                  <th className="pb-2 text-right font-medium">Closed</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#1F1F1F]">
+              <tbody>
                 {allTrades.map((trade) => {
                   const openedRel = formatRelativeTime(Math.floor(new Date(trade.openedAt).getTime() / 1000))
                   const closedRel = trade.closedAt
@@ -280,42 +268,42 @@ export default function TradesPage() {
                     <Fragment key={trade.id}>
                       <tr
                         onClick={() => toggleExpand(trade.id)}
-                        className={`transition-colors cursor-pointer ${isExpanded ? 'bg-[#1A1A1A]/40' : 'hover:bg-[#1A1A1A]/60'}`}
+                        className={`border-t border-[#1C2030]/50 text-[13px] transition-colors cursor-pointer ${isExpanded ? 'bg-[#191C24]/40' : 'hover:bg-[#191C24]/40'}`}
                       >
-                        <td className="px-4 py-3.5">
+                        <td className="py-2.5 pr-4">
                           <div className="max-w-[240px]">
-                            <div className="text-xs text-gray-300 truncate" title={trade.marketTitle ?? trade.marketId}>
+                            <div className="text-[13px] text-[#E0E2E9] truncate" title={trade.marketTitle ?? trade.marketId}>
                               {trade.marketTitle ?? truncateAddress(trade.marketId, 6)}
                             </div>
                             {uniquePlatforms.length > 0 && (
-                              <div className="flex gap-1 mt-1">
+                              <div className="flex items-center gap-1.5 mt-1">
                                 {uniquePlatforms.map((p) => (
-                                  <PlatformBadge key={p} name={p} />
+                                  <ProtocolLogo key={p} name={p} size={14} />
                                 ))}
                               </div>
                             )}
                           </div>
                         </td>
-                        <td className="px-4 py-3.5">
+                        <td className="py-2.5">
                           <StatusBadge status={trade.status} />
                         </td>
-                        <td className="px-4 py-3.5 text-right font-mono tabular-nums text-gray-300">
+                        <td className="py-2.5 text-right font-mono tabular-nums text-[#6B7280]">
                           {formatUSD(trade.totalCost, 2)}
                         </td>
-                        <td className="px-4 py-3.5 text-right font-mono tabular-nums text-gray-300">
+                        <td className="py-2.5 text-right font-mono tabular-nums text-[#6B7280]">
                           {formatUSD(trade.expectedPayout, 2)}
                         </td>
-                        <td className="px-4 py-3.5 text-right font-mono tabular-nums text-gray-300">
-                          {trade.spreadBps} <span className="text-gray-600">bps</span>
+                        <td className="py-2.5 text-right font-mono tabular-nums text-[#E0E2E9]">
+                          {trade.spreadBps}<span className="text-[#3D4350] text-[11px]">&thinsp;bps</span>
                         </td>
-                        <td className="px-4 py-3.5 text-right">
+                        <td className="py-2.5 text-right">
                           <PnlCell pnl={trade.pnl} />
                         </td>
-                        <td className="px-4 py-3.5 text-right text-xs text-gray-400" title={openedRel.full}>
+                        <td className="py-2.5 text-right font-mono text-[11px] text-[#3D4350]" title={openedRel.full}>
                           {openedRel.relative}
                         </td>
-                        <td className="px-4 py-3.5 text-right text-xs text-gray-400" title={closedRel?.full}>
-                          {closedRel ? closedRel.relative : <span className="text-gray-600">&mdash;</span>}
+                        <td className="py-2.5 text-right font-mono text-[11px] text-[#3D4350]" title={closedRel?.full}>
+                          {closedRel ? closedRel.relative : <span className="text-[#262D3D]">&mdash;</span>}
                         </td>
                       </tr>
                       {isExpanded && <ExpandedRow trade={trade} />}
@@ -328,16 +316,16 @@ export default function TradesPage() {
 
           {/* Load More */}
           {hasMore && (
-            <div className="border-t border-[#1F1F1F] p-4 flex justify-center">
+            <div className="pt-3 flex justify-center">
               <button
                 onClick={handleLoadMore}
                 disabled={isFetching}
-                className="px-5 py-2.5 bg-[#1A1A1A] hover:bg-[#2A2A2A] border border-[#2A2A2A] rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-1.5 bg-[#111318] hover:bg-[#191C24] border border-[#1C2030] rounded text-xs font-mono uppercase tracking-wider text-[#3D4350] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isFetching ? (
                   <span className="flex items-center gap-2">
-                    <span className="inline-block w-4 h-4 border-2 border-gray-600 border-t-[#F0B90B] rounded-full spin-slow" />
-                    Loading...
+                    <span className="inline-block w-3 h-3 border border-[#3D4350] border-t-[#00D4FF] rounded-full spin-slow" />
+                    Loading
                   </span>
                 ) : (
                   'Load More'
@@ -345,7 +333,7 @@ export default function TradesPage() {
               </button>
             </div>
           )}
-        </div>
+        </>
       )}
     </div>
   )

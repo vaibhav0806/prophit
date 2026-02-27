@@ -11,16 +11,11 @@ const config: Config = {
       colors: {
         background: "var(--background)",
         foreground: "var(--foreground)",
-        gold: {
-          50: '#FFF8E1',
-          100: '#FFE082',
-          200: '#FFD43B',
-          DEFAULT: '#F0B90B',
-          400: '#D4A30A',
-          500: '#C99700',
-          600: '#8B6914',
-          light: 'var(--gold-light)',
-          dim: 'var(--gold-dim)',
+        accent: {
+          DEFAULT: '#00D4FF',
+          light: '#33DFFF',
+          dim: 'rgba(0, 212, 255, 0.08)',
+          glow: 'rgba(0, 212, 255, 0.15)',
         },
         surface: {
           DEFAULT: 'var(--surface)',
@@ -34,7 +29,6 @@ const config: Config = {
       fontFamily: {
         sans: ['var(--font-geist-sans)', 'system-ui', 'sans-serif'],
         mono: ['var(--font-geist-mono)', 'ui-monospace', 'monospace'],
-        display: ['var(--font-display)', 'system-ui', 'sans-serif'],
       },
       keyframes: {
         'slide-in': {
@@ -42,8 +36,8 @@ const config: Config = {
           '100%': { opacity: '1', transform: 'translateY(0) scale(1)' },
         },
         'glow-border': {
-          '0%, 100%': { boxShadow: '0 0 8px rgba(240, 185, 11, 0.15)' },
-          '50%': { boxShadow: '0 0 20px rgba(240, 185, 11, 0.35)' },
+          '0%, 100%': { boxShadow: '0 0 8px rgba(0, 212, 255, 0.15)' },
+          '50%': { boxShadow: '0 0 20px rgba(0, 212, 255, 0.35)' },
         },
       },
       animation: {

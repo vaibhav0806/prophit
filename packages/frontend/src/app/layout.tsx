@@ -16,12 +16,6 @@ const geistMono = localFont({
   weight: "100 900",
 });
 
-const displayFont = localFont({
-  src: "./fonts/TurboDriver-Italic.woff2",
-  variable: "--font-display",
-  weight: "700",
-});
-
 export const metadata: Metadata = {
   title: "Prophit — Prediction Market Arbitrage",
   description: "Automated prediction market arbitrage trading platform",
@@ -35,9 +29,8 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${displayFont.variable} antialiased bg-[#0A0A0A] text-[#E8E8E8] font-sans`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#0B0D11] text-[#E0E2E9] font-sans`}
       >
-        <div className="gold-accent-line" aria-hidden />
         <Providers>
           <div className="flex min-h-screen">
             <Sidebar />

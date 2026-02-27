@@ -37,7 +37,7 @@ export default function LoginPage() {
         <div
           className="absolute inset-0"
           style={{
-            background: 'radial-gradient(ellipse 50% 40% at 50% 35%, rgba(240,185,11,0.06) 0%, transparent 70%)',
+            background: 'radial-gradient(ellipse 50% 40% at 50% 35%, rgba(0,212,255,0.06) 0%, transparent 70%)',
           }}
         />
         {/* Subtle grid */}
@@ -45,8 +45,8 @@ export default function LoginPage() {
           className="absolute inset-0 opacity-[0.025]"
           style={{
             backgroundImage: `
-              linear-gradient(rgba(240,185,11,0.15) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(240,185,11,0.15) 1px, transparent 1px)
+              linear-gradient(rgba(0,212,255,0.15) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(0,212,255,0.15) 1px, transparent 1px)
             `,
             backgroundSize: '80px 80px',
           }}
@@ -65,26 +65,22 @@ export default function LoginPage() {
         {/* Branding */}
         <div className="text-center mb-12 animate-in" style={{ '--stagger': 0 } as React.CSSProperties}>
           <h1
-            className="text-[42px] font-display uppercase mb-3 logo-shimmer"
+            className="text-[42px] font-bold uppercase mb-3 text-white"
             style={{
-              background: 'linear-gradient(180deg, #FFD43B 0%, #F0B90B 50%, #C99700 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-              filter: 'drop-shadow(0 0 40px rgba(240,185,11,0.15))',
+              textShadow: '0 0 30px rgba(0, 212, 255, 0.25)',
               letterSpacing: '0.02em',
             }}
           >
             PROPHIT
           </h1>
-          <p className="text-[10px] text-[#555] uppercase tracking-[0.3em] font-medium">
+          <p className="text-[11px] text-[#3D4350] uppercase tracking-[0.3em] font-semibold">
             Prediction Market Arbitrage
           </p>
         </div>
 
         {/* Card */}
-        <div className="card-glass rounded-2xl p-8 animate-in" style={{ '--stagger': 1 } as React.CSSProperties}>
-          <div className="text-[10px] text-[#555] uppercase tracking-[0.15em] mb-5 font-medium">
+        <div className="rounded border border-[#1C2030] bg-[#111318] p-8 animate-in" style={{ '--stagger': 1 } as React.CSSProperties}>
+          <div className="text-[11px] text-[#3D4350] uppercase tracking-[0.15em] mb-5 font-semibold">
             Sign In
           </div>
 
@@ -93,13 +89,13 @@ export default function LoginPage() {
             disabled={isReady && isAuthenticated && isProfileLoading}
             className="
               w-full flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl text-sm font-semibold
-              btn-gold
+              btn-accent
               disabled:opacity-60 disabled:cursor-not-allowed
             "
           >
             {isReady && isAuthenticated && isProfileLoading ? (
               <>
-                <span className="inline-block w-4 h-4 border-2 border-[#8B6914] border-t-[#F0B90B] rounded-full spin-slow" />
+                <span className="inline-block w-4 h-4 border-2 border-[#006680] border-t-[#00D4FF] rounded-full spin-slow" />
                 Loading...
               </>
             ) : (
@@ -109,14 +105,14 @@ export default function LoginPage() {
 
           {/* Error */}
           {error && (
-            <div className="mt-4 text-red-400 bg-red-950/30 border border-red-900/50 rounded-xl p-4 text-sm">
+            <div className="mt-4 text-red-400 bg-red-950/30 border border-red-900/50 rounded p-4 text-sm">
               {error}
             </div>
           )}
         </div>
 
         {/* Tagline */}
-        <p className="text-center text-[10px] text-[#444] mt-8 animate-in font-medium" style={{ '--stagger': 2, letterSpacing: '0.25em' } as React.CSSProperties}>
+        <p className="text-center text-[11px] text-[#3D4350] mt-8 animate-in font-medium" style={{ '--stagger': 2, letterSpacing: '0.25em' } as React.CSSProperties}>
           Automated prediction market arbitrage
         </p>
       </div>

@@ -23,7 +23,7 @@ export function Providers({ children }: { children: ReactNode }) {
       config={{
         appearance: {
           theme: "dark",
-          accentColor: "#F0B90B",
+          accentColor: "#00D4FF",
         },
         loginMethods: ["email", "google", "apple", "twitter"],
         embeddedWallets: {

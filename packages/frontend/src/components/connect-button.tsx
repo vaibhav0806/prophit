@@ -8,7 +8,7 @@ export function ConnectButton() {
   if (isAuthenticated && address) {
     return (
       <div className="flex items-center gap-2 bg-gray-900/80 border border-gray-800 rounded-lg px-3 py-2">
-        <span className="inline-block w-2 h-2 rounded-full bg-[#F0B90B] shrink-0" />
+        <span className="inline-block w-2 h-2 rounded-full bg-[#00D4FF] shrink-0" />
         <span className="text-xs font-mono text-gray-300 truncate">
           {address.slice(0, 6)}...{address.slice(-4)}
         </span>
@@ -25,7 +25,7 @@ export function ConnectButton() {
   return (
     <button
       onClick={() => login()}
-      className="w-full text-xs px-3 py-2.5 rounded-lg btn-gold font-medium"
+      className="w-full text-xs px-3 py-2.5 rounded-lg btn-accent font-medium"
     >
       Connect Wallet
     </button>

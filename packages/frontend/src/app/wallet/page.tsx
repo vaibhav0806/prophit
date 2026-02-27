@@ -13,15 +13,24 @@ function isValidAddress(addr: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(addr)
 }
 
+function SectionDivider({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-3 mb-3">
+      <span className="text-[11px] text-[#3D4350] uppercase tracking-[0.15em] font-semibold shrink-0">{label}</span>
+      <div className="flex-1 h-px bg-[#1C2030]" />
+    </div>
+  )
+}
+
 // --- Skeletons ---
 
 function SkeletonBalances() {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div className="flex gap-12 mb-8">
       {[0, 1].map((i) => (
-        <div key={i} className="card rounded-2xl p-6">
-          <div className="skeleton h-3 w-24 mb-3" />
-          <div className="skeleton h-8 w-40" />
+        <div key={i}>
+          <div className="skeleton h-2.5 w-16 mb-2" />
+          <div className="skeleton h-7 w-32" />
         </div>
       ))}
     </div>
@@ -30,8 +39,11 @@ function SkeletonBalances() {
 
 function SkeletonDeposit() {
   return (
-    <div className="card rounded-2xl p-6">
-      <div className="skeleton h-4 w-32 mb-4" />
+    <div className="mb-8">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="skeleton h-2.5 w-16" />
+        <div className="flex-1 h-px bg-[#1C2030]" />
+      </div>
       <div className="skeleton h-12 w-full mb-3" />
       <div className="skeleton h-3 w-64" />
     </div>
@@ -40,13 +52,14 @@ function SkeletonDeposit() {
 
 function SkeletonHistory() {
   return (
-    <div className="card rounded-2xl overflow-hidden">
-      <div className="px-5 py-4 border-b border-[#1F1F1F]">
-        <div className="skeleton h-4 w-40" />
+    <div>
+      <div className="flex items-center gap-3 mb-3">
+        <div className="skeleton h-2.5 w-28" />
+        <div className="flex-1 h-px bg-[#1C2030]" />
       </div>
-      <div className="divide-y divide-[#1F1F1F]">
+      <div className="divide-y divide-[#1C2030]">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="px-5 py-4 flex items-center gap-4">
+          <div key={i} className="py-3 flex items-center gap-4">
             <div className="skeleton h-3 w-12" />
             <div className="skeleton h-3 w-24" />
             <div className="skeleton h-3 w-32 ml-auto" />
@@ -59,48 +72,29 @@ function SkeletonHistory() {
 
 // --- Components ---
 
-function BalanceCards({ usdtRaw, bnbRaw }: { usdtRaw: string; bnbRaw: string }) {
+function BalanceDisplay({ usdtRaw, bnbRaw }: { usdtRaw: string; bnbRaw: string }) {
   const usdt = Number(usdtRaw)
   const bnb = Number(bnbRaw)
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      {/* USDT */}
-      <div className="card rounded-2xl p-6">
-        <div className="text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium mb-2">USDT Balance</div>
-        <div className="flex items-baseline gap-2">
-          <span
-            className="text-3xl font-mono font-bold tabular-nums"
-            style={{
-              background: 'linear-gradient(180deg, #FFD43B 0%, #F0B90B 60%, #C99700 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-            }}
-          >
-            {formatUSD(usdt, 2)}
-          </span>
-        </div>
-        <div className="text-xs text-gray-600 font-mono mt-1.5">
-          {formatNumber(usdt, 6)} USDT
+    <div className="flex gap-12 mb-8">
+      <div>
+        <div className="text-[11px] text-[#3D4350] uppercase tracking-[0.12em] font-medium mb-1">USDT</div>
+        <div className="text-xl font-mono font-semibold tabular-nums text-white">
+          {formatUSD(usdt, 2)}
         </div>
       </div>
-
-      {/* BNB */}
-      <div className="card rounded-2xl p-6">
-        <div className="text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium mb-2">BNB Balance</div>
-        <div className="flex items-baseline gap-2">
-          <span className="text-3xl font-mono font-bold tabular-nums text-amber-400">
-            {formatNumber(bnb, 6)}
-          </span>
-          <span className="text-sm text-gray-500 font-medium">BNB</span>
+      <div>
+        <div className="text-[11px] text-[#3D4350] uppercase tracking-[0.12em] font-medium mb-1">BNB</div>
+        <div className="text-xl font-mono font-semibold tabular-nums text-white">
+          {formatNumber(bnb, 6)}
         </div>
       </div>
     </div>
   )
 }
 
-function DepositCard({ address }: { address: string }) {
+function DepositSection({ address }: { address: string }) {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async () => {
@@ -126,20 +120,20 @@ function DepositCard({ address }: { address: string }) {
   }, [copied])
 
   return (
-    <div className="card rounded-2xl p-6">
-      <h2 className="text-base font-semibold mb-4">Deposit</h2>
+    <div className="mb-8">
+      <SectionDivider label="Deposit" />
 
-      <div className="bg-[#1A1A1A]/80 border border-[#2A2A2A] rounded-lg p-4 flex items-center gap-3">
+      <div className="bg-[#191C24]/80 border border-[#262D3D] rounded-lg p-4 flex items-center gap-3">
         <code className="flex-1 font-mono text-sm sm:text-base text-gray-200 break-all leading-relaxed select-all">
           {address}
         </code>
         <button
           onClick={handleCopy}
           className={`
-            shrink-0 px-3.5 py-2 rounded-lg text-xs font-medium transition-all duration-200
+            shrink-0 px-3.5 py-2 rounded-lg text-[13px] font-medium transition-all duration-200
             ${copied
-              ? 'bg-[#F0B90B]/15 border border-[#F0B90B]/30 text-[#F0B90B]'
-              : 'bg-[#1A1A1A] border border-[#2A2A2A] text-gray-300 hover:bg-[#2A2A2A] hover:text-white'
+              ? 'bg-[#00D4FF]/15 border border-[#00D4FF]/30 text-[#00D4FF]'
+              : 'bg-[#191C24] border border-[#262D3D] text-gray-300 hover:bg-[#262D3D] hover:text-white'
             }
           `}
         >
@@ -147,18 +141,37 @@ function DepositCard({ address }: { address: string }) {
         </button>
       </div>
 
-      <p className="text-xs text-gray-500 mt-3">
+      <p className="text-[13px] text-gray-500 mt-3">
         Send USDT and BNB to this address on BSC (BEP-20)
       </p>
-      <p className="text-[11px] text-amber-400/80 mt-1.5 flex items-center gap-1.5">
-        <span className="inline-block w-1 h-1 rounded-full bg-amber-400/80" />
+      <p className="text-xs text-[#00D4FF]/80 mt-1.5 flex items-center gap-1.5">
+        <span className="inline-block w-1 h-1 rounded-full bg-[#00D4FF]/80" />
         Only send assets on the BNB Smart Chain network
       </p>
     </div>
   )
 }
 
-function WithdrawForm({ usdtRaw, bnbRaw }: { usdtRaw: string; bnbRaw: string }) {
+function ExportWalletSection({ address }: { address: string }) {
+  const { exportWallet } = useExportWallet()
+
+  return (
+    <div className="mb-8">
+      <SectionDivider label="Export Wallet" />
+      <p className="text-[13px] text-gray-500 mb-4">
+        Export your private key to use this wallet in any external app. You have full custody of your funds.
+      </p>
+      <button
+        onClick={() => exportWallet({ address })}
+        className="px-4 py-2.5 rounded-lg text-sm font-medium bg-[#191C24] border border-[#262D3D] text-gray-300 hover:text-white hover:border-gray-600/80 transition-all duration-150"
+      >
+        Export Private Key
+      </button>
+    </div>
+  )
+}
+
+function WithdrawSection({ usdtRaw, bnbRaw }: { usdtRaw: string; bnbRaw: string }) {
   const withdraw = useWithdraw()
   const [token, setToken] = useState<'USDT' | 'BNB'>('USDT')
   const [amount, setAmount] = useState('')
@@ -209,13 +222,13 @@ function WithdrawForm({ usdtRaw, bnbRaw }: { usdtRaw: string; bnbRaw: string }) 
   }
 
   return (
-    <div className="card rounded-2xl p-6">
-      <h2 className="text-base font-semibold mb-5">Withdraw</h2>
+    <div className="mb-8 max-w-2xl">
+      <SectionDivider label="Withdraw" />
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Token selector */}
         <div>
-          <label className="block text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium mb-2">
+          <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
             Token
           </label>
           <div className="flex gap-2">
@@ -225,8 +238,8 @@ function WithdrawForm({ usdtRaw, bnbRaw }: { usdtRaw: string; bnbRaw: string }) 
               className={`
                 flex-1 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
                 ${token === 'USDT'
-                  ? 'bg-[#F0B90B]/10 border-2 border-[#F0B90B]/30 text-[#F0B90B]'
-                  : 'bg-[#1A1A1A]/80 border-2 border-[#2A2A2A] text-gray-500 hover:text-gray-300 hover:border-[#2A2A2A]'
+                  ? 'bg-[#00D4FF]/10 border-2 border-[#00D4FF]/30 text-[#00D4FF]'
+                  : 'bg-[#191C24]/80 border-2 border-[#262D3D] text-gray-500 hover:text-gray-300 hover:border-[#262D3D]'
                 }
               `}
             >
@@ -239,7 +252,7 @@ function WithdrawForm({ usdtRaw, bnbRaw }: { usdtRaw: string; bnbRaw: string }) 
                 flex-1 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
                 ${token === 'BNB'
                   ? 'bg-amber-500/10 border-2 border-amber-500/30 text-amber-400'
-                  : 'bg-[#1A1A1A]/80 border-2 border-[#2A2A2A] text-gray-500 hover:text-gray-300 hover:border-[#2A2A2A]'
+                  : 'bg-[#191C24]/80 border-2 border-[#262D3D] text-gray-500 hover:text-gray-300 hover:border-[#262D3D]'
                 }
               `}
             >
@@ -250,7 +263,7 @@ function WithdrawForm({ usdtRaw, bnbRaw }: { usdtRaw: string; bnbRaw: string }) 
 
         {/* Amount */}
         <div>
-          <label className="block text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium mb-2">
+          <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
             Amount
             <span className="text-gray-600 ml-1 normal-case tracking-normal">
               (available: {formatNumber(currentBalance, token === 'USDT' ? 2 : 6)} {token})
@@ -263,12 +276,12 @@ function WithdrawForm({ usdtRaw, bnbRaw }: { usdtRaw: string; bnbRaw: string }) 
               value={amount}
               onChange={(e) => { setAmount(e.target.value); setValidationError(null) }}
               placeholder="0.00"
-              className="w-full bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg px-3.5 py-2.5 pr-16 text-sm font-mono tabular-nums focus:outline-none focus:border-[#F0B90B]/50 focus:ring-1 focus:ring-[#F0B90B]/20 transition-colors"
+              className="w-full bg-[#191C24] border border-[#262D3D] rounded-lg px-3.5 py-2.5 pr-16 text-sm font-mono tabular-nums focus:outline-none focus:border-[#00D4FF]/50 focus:ring-1 focus:ring-[#00D4FF]/20 transition-colors"
             />
             <button
               type="button"
               onClick={handleMax}
-              className="absolute right-2 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded text-[11px] font-medium uppercase tracking-wide bg-[#1A1A1A] text-gray-400 hover:text-white hover:bg-[#2A2A2A] transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded text-xs font-medium uppercase tracking-wide bg-[#191C24] text-gray-400 hover:text-white hover:bg-[#262D3D] transition-colors"
             >
               Max
             </button>
@@ -277,7 +290,7 @@ function WithdrawForm({ usdtRaw, bnbRaw }: { usdtRaw: string; bnbRaw: string }) 
 
         {/* Destination address */}
         <div>
-          <label className="block text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium mb-2">
+          <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
             Destination Address
           </label>
           <input
@@ -285,20 +298,20 @@ function WithdrawForm({ usdtRaw, bnbRaw }: { usdtRaw: string; bnbRaw: string }) 
             value={toAddress}
             onChange={(e) => { setToAddress(e.target.value); setValidationError(null) }}
             placeholder="0x..."
-            className="w-full bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg px-3.5 py-2.5 text-sm font-mono tabular-nums focus:outline-none focus:border-[#F0B90B]/50 focus:ring-1 focus:ring-[#F0B90B]/20 transition-colors"
+            className="w-full bg-[#191C24] border border-[#262D3D] rounded-lg px-3.5 py-2.5 text-sm font-mono tabular-nums focus:outline-none focus:border-[#00D4FF]/50 focus:ring-1 focus:ring-[#00D4FF]/20 transition-colors"
           />
         </div>
 
         {/* Validation / mutation error */}
         {(validationError || withdraw.isError) && (
-          <div className="text-sm text-[#FF4757] bg-red-950/30 border border-red-900/50 rounded-lg px-3.5 py-2.5">
+          <div className="text-sm text-[#EF4444] bg-red-950/30 border border-red-900/50 rounded-lg px-3.5 py-2.5">
             {validationError || (withdraw.error as Error)?.message || 'Withdrawal failed'}
           </div>
         )}
 
         {/* Success */}
         {withdraw.isSuccess && (
-          <div className="text-sm text-[#F0B90B] bg-[#F0B90B]/5 border border-[#F0B90B]/20 rounded-lg px-3.5 py-2.5">
+          <div className="text-sm text-[#00D4FF] bg-[#00D4FF]/5 border border-[#00D4FF]/20 rounded-lg px-3.5 py-2.5">
             Withdrawal submitted successfully
           </div>
         )}
@@ -309,13 +322,13 @@ function WithdrawForm({ usdtRaw, bnbRaw }: { usdtRaw: string; bnbRaw: string }) 
           disabled={withdraw.isPending}
           className="
             w-full py-3 rounded-xl text-sm
-            btn-gold
+            btn-accent
             disabled:opacity-50 disabled:cursor-not-allowed
           "
         >
           {withdraw.isPending ? (
             <span className="flex items-center justify-center gap-2">
-              <span className="inline-block w-3.5 h-3.5 border-2 border-[#F0B90B]/30 border-t-[#F0B90B] rounded-full spin-slow" />
+              <span className="inline-block w-3.5 h-3.5 border-2 border-[#00D4FF]/30 border-t-[#00D4FF] rounded-full spin-slow" />
               Processing...
             </span>
           ) : (
@@ -337,34 +350,29 @@ function TransactionHistory({ deposits }: {
 
   if (sorted.length === 0) {
     return (
-      <div className="card rounded-2xl p-12 text-center">
-        <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#F0B90B]/5 border border-[#F0B90B]/10 mb-4">
-          <svg className="w-6 h-6 text-[#F0B90B]/40" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-          </svg>
+      <div>
+        <SectionDivider label="Deposit History" />
+        <div className="py-8 text-center">
+          <div className="text-xs font-mono text-[#262D3D]">No deposits yet — deposits will appear here once confirmed on-chain</div>
         </div>
-        <div className="text-gray-400 font-medium">No deposits yet</div>
-        <div className="text-sm text-gray-600 mt-1">Deposits will appear here once confirmed on-chain</div>
       </div>
     )
   }
 
   return (
-    <div className="card rounded-2xl overflow-hidden">
-      <div className="px-5 py-4 border-b border-[#1F1F1F]">
-        <h2 className="text-base font-semibold">Deposit History</h2>
-      </div>
+    <div>
+      <SectionDivider label="Deposit History" />
       <div className="overflow-x-auto">
-        <table className="w-full text-sm table-gold">
+        <table className="w-full text-[13px] table-styled">
           <thead>
-            <tr className="border-b border-[#1F1F1F] text-[11px] uppercase tracking-wider text-gray-500">
-              <th className="px-5 py-3 text-left font-medium">Token</th>
-              <th className="px-5 py-3 text-right font-medium">Amount</th>
-              <th className="px-5 py-3 text-right font-medium">Date</th>
+            <tr className="border-b border-[#1C2030] text-[10px] uppercase tracking-wider text-gray-500">
+              <th className="px-0 pr-4 py-2.5 text-left font-medium">Token</th>
+              <th className="px-4 py-2.5 text-right font-medium">Amount</th>
+              <th className="px-4 pr-0 py-2.5 text-right font-medium">Date</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#1F1F1F]">
-            {sorted.map((dep, i) => {
+          <tbody className="divide-y divide-[#1C2030]">
+            {sorted.map((dep) => {
               const amount = Number(dep.amount)
               const date = new Date(dep.confirmedAt)
               const dateStr = date.toLocaleString('en-US', {
@@ -377,23 +385,23 @@ function TransactionHistory({ deposits }: {
               return (
                 <tr
                   key={dep.id}
-                  className={`transition-colors hover:bg-[#1A1A1A]/60 ${i % 2 === 0 ? '' : 'bg-gray-900/30'}`}
+                  className="transition-colors hover:bg-[#191C24]"
                 >
-                  <td className="px-5 py-3.5">
+                  <td className="px-0 pr-4 py-3">
                     <span className={`
-                      inline-block px-2 py-0.5 rounded text-xs font-medium border
+                      text-[10px] px-1.5 py-px rounded font-mono font-medium uppercase tracking-wider border
                       ${dep.token === 'USDT' || dep.token === 'usdt'
-                        ? 'bg-[#F0B90B]/10 text-[#F0B90B] border-[#F0B90B]/20'
+                        ? 'bg-[#00D4FF]/10 text-[#00D4FF] border-[#00D4FF]/20'
                         : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
                       }
                     `}>
                       {dep.token.toUpperCase()}
                     </span>
                   </td>
-                  <td className="px-5 py-3.5 text-right font-mono tabular-nums text-gray-200">
+                  <td className="px-4 py-3 text-right font-mono tabular-nums text-gray-200">
                     {formatNumber(amount, dep.token.toUpperCase() === 'BNB' ? 6 : 2)}
                   </td>
-                  <td className="px-5 py-3.5 text-right text-gray-400 text-xs">
+                  <td className="px-4 pr-0 py-3 text-right text-gray-400 text-[13px]">
                     {dateStr}
                   </td>
                 </tr>
@@ -402,25 +410,6 @@ function TransactionHistory({ deposits }: {
           </tbody>
         </table>
       </div>
-    </div>
-  )
-}
-
-function ExportWalletCard({ address }: { address: string }) {
-  const { exportWallet } = useExportWallet()
-
-  return (
-    <div className="card rounded-2xl p-6">
-      <h2 className="text-base font-semibold mb-2">Export Wallet</h2>
-      <p className="text-xs text-gray-500 mb-4">
-        Export your private key to use this wallet in any external app. You have full custody of your funds.
-      </p>
-      <button
-        onClick={() => exportWallet({ address })}
-        className="px-4 py-2.5 rounded-lg text-sm font-medium bg-[#1A1A1A] border border-[#2A2A2A] text-gray-300 hover:text-white hover:border-gray-600/80 transition-all duration-150"
-      >
-        Export Private Key
-      </button>
     </div>
   )
 }
@@ -443,14 +432,11 @@ export default function WalletPage() {
   if (!isReady || !isAuthenticated) return null
 
   return (
-    <div className="page-enter p-6 lg:p-8 max-w-4xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight heading-accent">Wallet</h1>
-        <p className="text-sm text-gray-500 mt-1">Balances, deposits, and withdrawals</p>
-      </div>
+    <div className="p-5 lg:p-6 page-enter">
+      <h1 className="text-xs font-semibold text-[#3D4350] uppercase tracking-[0.15em] mb-5">Wallet</h1>
 
       {isLoading && (
-        <div className="space-y-6">
+        <div>
           <SkeletonBalances />
           <SkeletonDeposit />
           <SkeletonHistory />
@@ -458,18 +444,18 @@ export default function WalletPage() {
       )}
 
       {error && (
-        <div className="text-[#FF4757] bg-red-950/30 border border-red-900/50 rounded-2xl p-5">
-          <div className="font-medium mb-1">Failed to load wallet</div>
-          <div className="text-sm text-[#FF4757]/70">{(error as Error).message}</div>
+        <div className="text-[#EF4444] bg-red-950/30 border border-red-900/50 rounded-lg p-4">
+          <div className="font-medium mb-1 text-sm">Failed to load wallet</div>
+          <div className="text-[13px] text-[#EF4444]/70">{(error as Error).message}</div>
         </div>
       )}
 
       {wallet && (
-        <div className="space-y-6">
-          <BalanceCards usdtRaw={wallet.usdtBalance} bnbRaw={wallet.bnbBalance} />
-          <DepositCard address={wallet.address} />
-          <ExportWalletCard address={wallet.address} />
-          <WithdrawForm usdtRaw={wallet.usdtBalance} bnbRaw={wallet.bnbBalance} />
+        <div>
+          <BalanceDisplay usdtRaw={wallet.usdtBalance} bnbRaw={wallet.bnbBalance} />
+          <DepositSection address={wallet.address} />
+          <ExportWalletSection address={wallet.address} />
+          <WithdrawSection usdtRaw={wallet.usdtBalance} bnbRaw={wallet.bnbBalance} />
           <TransactionHistory deposits={wallet.deposits} />
         </div>
       )}

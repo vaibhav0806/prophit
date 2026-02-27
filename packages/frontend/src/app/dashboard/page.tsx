@@ -13,331 +13,394 @@ import {
 } from '@/hooks/use-platform-api'
 import { useAuth } from '@/hooks/use-auth'
 import { formatUSD, formatUptime, formatRelativeTime, truncateAddress } from '@/lib/format'
+import { ProtocolRoute } from '@/components/protocol-logos'
 
-// --- Skeleton ---
+/* ─── Metric ─── */
 
-function DashboardSkeleton() {
+function Metric({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-6">
-      {/* Hero stats — asymmetric */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="col-span-2 card rounded-2xl p-6">
-          <div className="skeleton h-3 w-20 mb-3" />
-          <div className="skeleton h-10 w-40" />
-        </div>
-        <div className="card rounded-2xl p-6">
-          <div className="skeleton h-3 w-20 mb-3" />
-          <div className="skeleton h-8 w-28" />
-        </div>
-        <div className="space-y-4">
-          <div className="card rounded-2xl p-4">
-            <div className="skeleton h-3 w-20 mb-2" />
-            <div className="skeleton h-6 w-16" />
-          </div>
-          <div className="card rounded-2xl p-4">
-            <div className="skeleton h-3 w-20 mb-2" />
-            <div className="skeleton h-6 w-16" />
-          </div>
-        </div>
-      </div>
-      {/* Agent control */}
-      <div className="card rounded-2xl p-6">
-        <div className="flex items-center gap-6">
-          <div className="skeleton h-14 w-48 rounded-xl" />
-          <div className="skeleton h-4 w-24" />
-          <div className="skeleton h-3 w-32 ml-auto" />
-        </div>
-      </div>
-      {/* Table */}
-      <div className="card rounded-2xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-[#1F1F1F]">
-          <div className="skeleton h-4 w-28" />
-        </div>
-        <div className="divide-y divide-[#1F1F1F]">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="px-6 py-4 flex items-center gap-6">
-              <div className="skeleton h-3 w-24" />
-              <div className="skeleton h-5 w-16 rounded-full" />
-              <div className="skeleton h-3 w-16" />
-              <div className="skeleton h-3 w-16" />
-              <div className="skeleton h-3 w-14" />
-              <div className="skeleton h-3 w-16 ml-auto" />
-              <div className="skeleton h-3 w-14" />
-            </div>
-          ))}
-        </div>
+    <div className="min-w-0">
+      <div className="text-[11px] text-[#3D4350] uppercase tracking-[0.12em] font-medium mb-1">{label}</div>
+      {children}
+    </div>
+  )
+}
+
+/* ─── Section divider ─── */
+
+function SectionLine({ label, right }: { label: string; right?: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 mb-3">
+      <span className="text-[11px] text-[#3D4350] uppercase tracking-[0.15em] font-semibold shrink-0">{label}</span>
+      <div className="flex-1 h-px bg-[#1C2030]" />
+      {right}
+    </div>
+  )
+}
+
+/* ─── Spread bar ─── */
+
+function SpreadIndicator({ bps, best }: { bps: number; best?: boolean }) {
+  const pct = Math.min(100, (bps / 500) * 100)
+  return (
+    <div className="flex items-center gap-1.5 justify-end">
+      <span className={`font-mono tabular-nums text-[13px] font-medium ${best ? 'text-[#00D4FF]' : 'text-[#E0E2E9]'}`}>
+        {bps}
+      </span>
+      <div className="w-8 h-[3px] bg-[#1C2030] rounded-sm overflow-hidden">
+        <div
+          className="h-full rounded-sm bg-[#00D4FF]"
+          style={{ width: `${pct}%`, opacity: 0.35 + (pct / 160) }}
+        />
       </div>
     </div>
   )
 }
 
-// --- Status badge ---
+/* ─── Status badge ─── */
 
-const STATUS_STYLES: Record<string, string> = {
-  OPEN: 'bg-[#F0B90B]/10 text-[#F0B90B] border-[#F0B90B]/20',
-  FILLED: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  CLOSED: 'bg-gray-700/30 text-gray-400 border-gray-600/30',
-  EXPIRED: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+const STATUS_CLS: Record<string, string> = {
+  OPEN: 'text-[#00D4FF] bg-[#00D4FF]/6 border-[#00D4FF]/12',
+  FILLED: 'text-blue-400 bg-blue-500/6 border-blue-500/12',
+  PARTIAL: 'text-amber-400/80 bg-amber-500/6 border-amber-500/12',
+  CLOSED: 'text-[#6B7280] bg-[#191C24] border-[#262D3D]',
+  EXPIRED: 'text-[#6B7280] bg-[#191C24] border-[#262D3D]',
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const key = status.toUpperCase()
-  const style = STATUS_STYLES[key] || STATUS_STYLES.CLOSED
+function Badge({ status }: { status: string }) {
+  const cls = STATUS_CLS[status.toUpperCase()] || STATUS_CLS.CLOSED
   return (
-    <span className={`inline-block text-[11px] px-2.5 py-0.5 rounded-full font-medium uppercase tracking-wide border ${style}`}>
+    <span className={`inline-block text-[10px] px-1.5 py-px rounded font-mono font-medium uppercase tracking-wider border ${cls}`}>
       {status}
     </span>
   )
 }
 
-// --- Main page ---
+/* ─── Skeleton ─── */
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-4 p-3 rounded border border-[#1C2030] bg-[#111318]">
+        <div className="skeleton h-7 w-20 rounded" />
+        <div className="skeleton h-3 w-16" />
+        <div className="flex-1" />
+        <div className="skeleton h-2.5 w-24" />
+      </div>
+      <div className="flex gap-10">
+        {[1, 2, 3, 4].map(i => (
+          <div key={i}>
+            <div className="skeleton h-2 w-12 mb-2" />
+            <div className="skeleton h-5 w-20" />
+          </div>
+        ))}
+      </div>
+      <div>
+        <div className="skeleton h-2 w-20 mb-4" />
+        {[1, 2, 3].map(i => (
+          <div key={i} className="flex gap-4 py-2.5 border-t border-[#1C2030]/40">
+            <div className="skeleton h-3 w-4" />
+            <div className="skeleton h-3 w-52" />
+            <div className="flex-1" />
+            <div className="skeleton h-3 w-10" />
+            <div className="skeleton h-3 w-14" />
+            <div className="skeleton h-3 w-14" />
+          </div>
+        ))}
+      </div>
+      <div>
+        <div className="skeleton h-2 w-24 mb-4" />
+        {[1, 2, 3].map(i => (
+          <div key={i} className="flex gap-4 py-2.5 border-t border-[#1C2030]/40">
+            <div className="skeleton h-3 w-44" />
+            <div className="skeleton h-3 w-12" />
+            <div className="flex-1" />
+            <div className="skeleton h-3 w-14" />
+            <div className="skeleton h-3 w-14" />
+            <div className="skeleton h-3 w-10" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* ─── Page ─── */
 
 export default function DashboardPage() {
   const router = useRouter()
   const { isAuthenticated, isReady } = useAuth()
 
   useEffect(() => {
-    if (isReady && !isAuthenticated) {
-      router.replace('/login')
-    }
+    if (isReady && !isAuthenticated) router.replace('/login')
   }, [isReady, isAuthenticated, router])
 
-  const { data: wallet, isLoading: walletLoading } = useWallet()
-  const { data: agent, isLoading: agentLoading } = useAgentStatus()
+  const { data: wallet, isLoading: wL } = useWallet()
+  const { data: agent, isLoading: aL } = useAgentStatus()
   const startAgent = useStartAgent()
   const stopAgent = useStopAgent()
-  const { data: tradesData, isLoading: tradesLoading } = useTrades(5, 0)
-  const { data: marketsData, isLoading: marketsLoading } = useMarkets()
+  const { data: tradesData, isLoading: tL } = useTrades(5, 0)
+  const { data: marketsData, isLoading: mL } = useMarkets()
 
-  const isLoading = walletLoading || agentLoading || tradesLoading || marketsLoading
+  const isLoading = wL || aL || tL || mL
 
-  // Derived values
-  const usdtBalance = useMemo(() => {
-    if (!wallet?.usdtBalance) return 0
-    return Number(wallet.usdtBalance)
-  }, [wallet?.usdtBalance])
-
-  const totalPnl = useMemo(() => {
-    if (!tradesData?.trades) return 0
-    return tradesData.trades.reduce((sum, t) => sum + (t.pnl ?? 0), 0)
-  }, [tradesData?.trades])
-
+  const balance = useMemo(() => Number(wallet?.usdtBalance ?? 0), [wallet?.usdtBalance])
   const trades = tradesData?.trades ?? []
+  const totalPnl = useMemo(() => trades.reduce((s, t) => s + (t.pnl ?? 0), 0), [trades])
 
-  const topOpportunities = useMemo(() => {
+  const topOpps = useMemo(() => {
     if (!marketsData?.opportunities) return []
-    return [...marketsData.opportunities]
-      .sort((a, b) => b.spreadBps - a.spreadBps)
-      .slice(0, 3)
+    return [...marketsData.opportunities].sort((a, b) => b.spreadBps - a.spreadBps).slice(0, 5)
   }, [marketsData?.opportunities])
 
-  // Find best spread index in trades table
   const bestTradeIdx = useMemo(() => {
-    if (trades.length === 0) return -1
-    return trades.reduce((best, t, idx) => t.spreadBps > trades[best].spreadBps ? idx : best, 0)
+    if (!trades.length) return -1
+    return trades.reduce((b, t, i) => t.spreadBps > trades[b].spreadBps ? i : b, 0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tradesData?.trades])
 
-  const isToggling = startAgent.isPending || stopAgent.isPending
-
-  const handleToggle = () => {
-    if (agent?.running) {
-      stopAgent.mutate()
-    } else {
-      startAgent.mutate()
-    }
-  }
+  const toggling = startAgent.isPending || stopAgent.isPending
+  const toggle = () => agent?.running ? stopAgent.mutate() : startAgent.mutate()
 
   if (!isReady || !isAuthenticated) return null
 
-  if (isLoading) {
-    return (
-      <div className="p-6 lg:p-8 max-w-7xl page-enter">
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold tracking-tight heading-accent">Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-1">Overview of your arbitrage operations</p>
-        </div>
-        <DashboardSkeleton />
-      </div>
-    )
-  }
-
   return (
-    <div className="p-6 lg:p-8 max-w-7xl page-enter">
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold tracking-tight heading-accent">Dashboard</h1>
-        <p className="text-sm text-[#555] mt-1">Overview of your arbitrage operations</p>
-      </div>
+    <div className="p-5 lg:p-6 page-enter">
+      <h1 className="text-xs font-semibold text-[#3D4350] uppercase tracking-[0.15em] mb-5">Dashboard</h1>
 
-      <div className="space-y-6">
-        {/* ── Hero Stats — Asymmetric Bento ── */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Balance — 2 cols wide */}
-          <div className="col-span-2 card card-accent rounded-2xl p-6 animate-in" style={{ '--stagger': 0 } as React.CSSProperties}>
-            <div className="text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium mb-1.5">USDT Balance</div>
-            <div className="text-4xl font-mono font-bold tabular-nums text-white">
-              {formatUSD(usdtBalance)}
-            </div>
-            {wallet?.address && (
-              <div className="text-[10px] text-gray-600 font-mono mt-2">{truncateAddress(wallet.address)}</div>
-            )}
-          </div>
+      {isLoading ? <DashboardSkeleton /> : (
+        <div className="space-y-7">
 
-          {/* P&L */}
-          <div className={`card card-accent rounded-2xl p-6 animate-in`} style={{ '--stagger': 1 } as React.CSSProperties}>
-            <div className="text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium mb-1.5">Total P&L</div>
-            <div className={`text-2xl font-mono font-bold tabular-nums ${totalPnl >= 0 ? 'text-[#00FF88]' : 'text-[#FF4757]'}`}>
-              {totalPnl >= 0 ? '+' : ''}{formatUSD(totalPnl)}
-            </div>
-            <div className="text-[10px] text-gray-600 mt-1.5">From recent trades</div>
-          </div>
-
-          {/* Trades + Uptime stacked */}
-          <div className="flex flex-col gap-4 animate-in" style={{ '--stagger': 2 } as React.CSSProperties}>
-            <div className="card card-accent rounded-2xl p-4 flex-1">
-              <div className="text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium mb-1">Trades</div>
-              <div className="text-xl font-mono font-bold tabular-nums text-white">
-                {agent?.tradesExecuted ?? 0}
-              </div>
-            </div>
-            <div className="card card-accent rounded-2xl p-4 flex-1">
-              <div className="text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium mb-1">Uptime</div>
-              <div className="text-xl font-mono font-bold tabular-nums text-white">
-                {agent?.running ? formatUptime(agent.uptime) : '---'}
-              </div>
-              <div className="flex items-center gap-1.5 mt-1">
-                <span className={`inline-block w-1.5 h-1.5 rounded-full ${agent?.running ? 'bg-[#F0B90B] pulse-dot' : 'bg-gray-600'}`} />
-                <span className="text-[10px] text-gray-600">{agent?.running ? 'Online' : 'Offline'}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* ── Agent Control ── */}
-        <div className={`card rounded-2xl p-6 ${agent?.running ? 'agent-running-border' : ''}`}>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
+          {/* ── Agent Status Bar ── */}
+          <div
+            className={`
+              relative flex flex-col sm:flex-row items-start sm:items-center gap-3
+              px-4 py-3 rounded border bg-[#111318] overflow-hidden
+              ${agent?.running ? 'border-[#00D4FF]/15' : 'border-[#1C2030]'}
+            `}
+          >
             <button
-              onClick={handleToggle}
-              disabled={isToggling}
+              onClick={toggle}
+              disabled={toggling}
               className={`
-                relative flex items-center gap-3 px-8 py-4 rounded-xl font-medium text-sm transition-all duration-200
-                disabled:opacity-60 disabled:cursor-not-allowed
+                flex items-center gap-2 px-3.5 py-1.5 rounded text-xs font-semibold
+                tracking-wide uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed
                 ${agent?.running
-                  ? 'bg-[#FF4757]/10 border-2 border-[#FF4757]/30 text-[#FF4757] hover:bg-[#FF4757]/20 hover:border-[#FF4757]/50'
-                  : 'btn-gold border-2 border-transparent'
+                  ? 'bg-[#EF4444]/8 text-[#EF4444] border border-[#EF4444]/20 hover:bg-[#EF4444]/15'
+                  : 'bg-[#00D4FF] text-[#0B0D11] border border-transparent hover:bg-[#33DFFF]'
                 }
               `}
             >
-              <span
-                className={`
-                  inline-block w-3 h-3 rounded-full shrink-0
-                  ${agent?.running ? 'bg-[#FF4757]' : 'bg-[#F0B90B]'}
-                  ${agent?.running ? 'status-pulse' : ''}
-                `}
-              />
-              {isToggling
-                ? 'Processing...'
-                : agent?.running
-                  ? 'Stop Agent'
-                  : 'Start Agent'
-              }
+              <span className={`w-1.5 h-1.5 rounded-full ${agent?.running ? 'bg-[#EF4444]' : 'bg-[#0B0D11]'}`} />
+              {toggling ? '\u00B7\u00B7\u00B7' : agent?.running ? 'Stop' : 'Start'}
             </button>
 
-            <div className="flex items-center gap-2.5">
-              <span
-                className={`inline-block w-2.5 h-2.5 rounded-full ${agent?.running ? 'bg-[#F0B90B] status-pulse' : 'bg-gray-600'}`}
-              />
-              <span className={`font-medium ${agent?.running ? 'text-[#F0B90B]' : 'text-gray-500'}`}>
-                {agent?.running ? 'Running' : 'Stopped'}
+            <div className="flex items-center gap-2">
+              <span className={`w-1.5 h-1.5 rounded-full ${agent?.running ? 'bg-[#00D4FF] status-pulse' : 'bg-[#3D4350]'}`} />
+              <span className={`text-xs font-mono tracking-wide ${agent?.running ? 'text-[#00D4FF]' : 'text-[#3D4350]'}`}>
+                {agent?.running ? 'ONLINE' : 'OFFLINE'}
               </span>
+              {agent?.running && (
+                <span className="text-[11px] font-mono text-[#3D4350]">{formatUptime(agent.uptime)}</span>
+              )}
             </div>
 
-            {agent?.lastScan ? (
-              <div className="sm:ml-auto text-[11px] text-[#555]">
-                Last scan{' '}
-                <span className="font-mono tabular-nums text-gray-400" title={formatRelativeTime(agent.lastScan / 1000).full}>
-                  {formatRelativeTime(agent.lastScan / 1000).relative}
+            <div className="sm:ml-auto flex items-center gap-3 text-[11px] font-mono text-[#3D4350]">
+              {agent?.tradesExecuted !== undefined && <span>{agent.tradesExecuted} exec</span>}
+              {agent?.lastScan && (
+                <span title={formatRelativeTime(agent.lastScan / 1000).full}>
+                  scan {formatRelativeTime(agent.lastScan / 1000).relative}
                 </span>
-              </div>
-            ) : null}
-          </div>
-        </div>
-
-        {/* ── Bottom Grid: Trades + Opportunities ── */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* Recent Trades — takes 2 cols */}
-          <div className="xl:col-span-2 card rounded-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#1F1F1F]">
-              <h2 className="text-sm font-semibold text-gray-200">Recent Trades</h2>
-              <Link
-                href="/trades"
-                className="text-[11px] text-gray-500 hover:text-[#F0B90B] uppercase tracking-wide transition-colors"
-              >
-                View All
-              </Link>
+              )}
             </div>
 
-            {trades.length === 0 ? (
-              <div className="px-6 py-12 text-center">
-                <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#F0B90B]/5 border border-[#F0B90B]/10 mb-4">
-                  <svg className="w-6 h-6 text-[#F0B90B]/40 spin-ring" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
-                  </svg>
+            {/* Scan sweep when active */}
+            {agent?.running && (
+              <div className="absolute bottom-0 left-0 right-0 h-px overflow-hidden">
+                <div
+                  className="h-full w-1/5 bg-gradient-to-r from-transparent via-[#00D4FF]/25 to-transparent"
+                  style={{ animation: 'scan-sweep 3s linear infinite' }}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* ── Metrics ── */}
+          <div className="flex flex-wrap items-start gap-x-10 gap-y-4 animate-in" style={{ '--stagger': 1 } as React.CSSProperties}>
+            <Metric label="Balance">
+              <div className="text-xl font-mono font-semibold tabular-nums text-white leading-tight">
+                {formatUSD(balance)}
+              </div>
+              {wallet?.address && (
+                <div className="text-[10px] font-mono text-[#262D3D] mt-0.5">{truncateAddress(wallet.address, 4)}</div>
+              )}
+            </Metric>
+
+            <Metric label="P&L">
+              <div
+                className={`text-xl font-mono font-semibold tabular-nums leading-tight ${totalPnl >= 0 ? 'text-[#22C55E]' : 'text-[#EF4444]'}`}
+                style={totalPnl > 0 ? { textShadow: '0 0 20px rgba(34, 197, 94, 0.12)' } : undefined}
+              >
+                {totalPnl >= 0 ? '+' : ''}{formatUSD(totalPnl)}
+              </div>
+            </Metric>
+
+            <Metric label="Trades">
+              <div className="text-xl font-mono font-semibold tabular-nums text-[#E0E2E9] leading-tight">
+                {agent?.tradesExecuted ?? 0}
+              </div>
+            </Metric>
+
+            <Metric label="Quotes">
+              <div className="text-xl font-mono font-semibold tabular-nums text-[#E0E2E9] leading-tight">
+                {marketsData?.quoteCount ?? 0}
+              </div>
+            </Metric>
+          </div>
+
+          {/* ── Live Spreads ── */}
+          <div className="animate-in" style={{ '--stagger': 2 } as React.CSSProperties}>
+            <SectionLine
+              label="Live Spreads"
+              right={
+                <div className="flex items-center gap-3">
+                  {(marketsData?.opportunities?.length ?? 0) > 0 && (
+                    <span className="text-[11px] font-mono text-[#3D4350]">
+                      {marketsData!.opportunities.length} active
+                    </span>
+                  )}
+                  <Link href="/markets" className="text-[11px] text-[#3D4350] hover:text-[#00D4FF] transition-colors">
+                    View all &rarr;
+                  </Link>
                 </div>
-                <div className="text-gray-500 text-sm">No trades yet</div>
-                <div className="text-gray-600 text-xs mt-1">Trades will appear here once the agent executes</div>
+              }
+            />
+
+            {topOpps.length === 0 ? (
+              <div className="py-8 text-center">
+                <div className="text-xs font-mono text-[#262D3D]">NO ACTIVE SPREADS</div>
+                <div className="text-[11px] text-[#1C2030] mt-1">Waiting for scanner</div>
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm table-gold">
+                <table className="w-full">
                   <thead>
-                    <tr className="border-b border-[#1F1F1F] text-[11px] uppercase tracking-wider text-gray-500">
-                      <th className="px-6 py-3 text-left font-medium">Market</th>
-                      <th className="px-4 py-3 text-left font-medium">Status</th>
-                      <th className="px-4 py-3 text-right font-medium">Cost</th>
-                      <th className="px-4 py-3 text-right font-medium">Payout</th>
-                      <th className="px-4 py-3 text-right font-medium">Spread</th>
-                      <th className="px-4 py-3 text-right font-medium">P&L</th>
-                      <th className="px-4 py-3 text-right font-medium">Time</th>
+                    <tr className="text-[10px] text-[#3D4350] uppercase tracking-widest">
+                      <th className="pb-2 pl-1 text-left font-medium w-6">#</th>
+                      <th className="pb-2 text-left font-medium">Market</th>
+                      <th className="pb-2 text-left font-medium">Route</th>
+                      <th className="pb-2 text-right font-medium pr-1">Spread</th>
+                      <th className="pb-2 text-right font-medium">Profit</th>
+                      <th className="pb-2 text-right font-medium">Cost</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#1F1F1F]">
-                    {trades.map((trade, idx) => {
-                      const time = formatRelativeTime(new Date(trade.openedAt).getTime() / 1000)
-                      const isBest = idx === bestTradeIdx
+                  <tbody>
+                    {topOpps.map((opp, i) => {
+                      const profit = Number(opp.estProfit) / 1e18
+                      const cost = Number(opp.totalCost) / 1e18
                       return (
                         <tr
-                          key={trade.id}
-                          className={`transition-colors hover:bg-[#1A1A1A]/60 ${isBest ? 'row-glow' : ''}`}
+                          key={`${opp.marketId}-${i}`}
+                          className={`
+                            border-t border-[#1C2030]/50 text-[13px] transition-colors
+                            hover:bg-[#191C24]/40 ${i === 0 ? 'row-glow' : ''}
+                          `}
                         >
-                          <td className="px-6 py-3.5">
-                            <div className="text-xs text-gray-300 max-w-[200px] truncate" title={trade.marketTitle ?? trade.marketId}>
-                              {trade.marketTitle ?? truncateAddress(trade.marketId)}
-                            </div>
+                          <td className="py-2.5 pl-1 font-mono text-[11px] text-[#262D3D]">{i + 1}</td>
+                          <td className="py-2.5 pr-4">
+                            <span className="text-[#E0E2E9] truncate block max-w-[320px]" title={opp.title ?? opp.marketId}>
+                              {opp.title || truncateAddress(opp.marketId)}
+                            </span>
                           </td>
-                          <td className="px-4 py-3.5">
-                            <StatusBadge status={trade.status} />
+                          <td className="py-2.5">
+                            <ProtocolRoute from={opp.protocolA} to={opp.protocolB} size={18} />
                           </td>
-                          <td className="px-4 py-3.5 text-right font-mono tabular-nums text-gray-300">
-                            {formatUSD(trade.totalCost)}
+                          <td className="py-2.5 pr-1">
+                            <SpreadIndicator bps={opp.spreadBps} best={i === 0} />
                           </td>
-                          <td className="px-4 py-3.5 text-right font-mono tabular-nums text-gray-300">
-                            {formatUSD(trade.expectedPayout)}
+                          <td className="py-2.5 text-right font-mono tabular-nums text-[#22C55E]/70">
+                            {formatUSD(profit)}
                           </td>
-                          <td className="px-4 py-3.5 text-right font-mono tabular-nums font-semibold text-[#F0B90B]/80">
-                            {trade.spreadBps} bps
+                          <td className="py-2.5 text-right font-mono tabular-nums text-[#3D4350]">
+                            {formatUSD(cost)}
                           </td>
-                          <td className="px-4 py-3.5 text-right font-mono tabular-nums font-semibold">
-                            {trade.pnl !== null ? (
-                              <span className={trade.pnl >= 0 ? 'text-[#00FF88]' : 'text-[#FF4757]'}>
-                                {trade.pnl >= 0 ? '+' : ''}{formatUSD(trade.pnl)}
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* ── Recent Trades ── */}
+          <div className="animate-in" style={{ '--stagger': 3 } as React.CSSProperties}>
+            <SectionLine
+              label="Recent Trades"
+              right={
+                trades.length > 0 ? (
+                  <Link href="/trades" className="text-[11px] text-[#3D4350] hover:text-[#00D4FF] transition-colors">
+                    View all &rarr;
+                  </Link>
+                ) : undefined
+              }
+            />
+
+            {trades.length === 0 ? (
+              <div className="py-8 text-center">
+                <div className="text-xs font-mono text-[#262D3D]">AWAITING EXECUTION</div>
+                <div className="text-[11px] text-[#1C2030] mt-1">Trades appear after agent runs</div>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="text-[10px] text-[#3D4350] uppercase tracking-widest">
+                      <th className="pb-2 text-left font-medium">Market</th>
+                      <th className="pb-2 text-left font-medium">Status</th>
+                      <th className="pb-2 text-right font-medium">Cost</th>
+                      <th className="pb-2 text-right font-medium">Payout</th>
+                      <th className="pb-2 text-right font-medium">Spread</th>
+                      <th className="pb-2 text-right font-medium">P&L</th>
+                      <th className="pb-2 text-right font-medium">Time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trades.map((t, i) => {
+                      const time = formatRelativeTime(new Date(t.openedAt).getTime() / 1000)
+                      return (
+                        <tr
+                          key={t.id}
+                          className={`
+                            border-t border-[#1C2030]/50 text-[13px] transition-colors
+                            hover:bg-[#191C24]/40 ${i === bestTradeIdx ? 'row-glow' : ''}
+                          `}
+                        >
+                          <td className="py-2.5 pr-4">
+                            <span className="text-[#E0E2E9] truncate block max-w-[240px]" title={t.marketTitle ?? t.marketId}>
+                              {t.marketTitle || truncateAddress(t.marketId)}
+                            </span>
+                          </td>
+                          <td className="py-2.5"><Badge status={t.status} /></td>
+                          <td className="py-2.5 text-right font-mono tabular-nums text-[#6B7280]">
+                            {formatUSD(t.totalCost)}
+                          </td>
+                          <td className="py-2.5 text-right font-mono tabular-nums text-[#6B7280]">
+                            {formatUSD(t.expectedPayout)}
+                          </td>
+                          <td className="py-2.5 text-right font-mono tabular-nums text-[#E0E2E9]">
+                            {t.spreadBps}<span className="text-[#3D4350] text-[11px]">&thinsp;bps</span>
+                          </td>
+                          <td className="py-2.5 text-right font-mono tabular-nums font-medium">
+                            {t.pnl !== null ? (
+                              <span className={t.pnl >= 0 ? 'text-[#22C55E]' : 'text-[#EF4444]'}>
+                                {t.pnl >= 0 ? '+' : ''}{formatUSD(t.pnl)}
                               </span>
                             ) : (
-                              <span className="text-gray-600">&mdash;</span>
+                              <span className="text-[#262D3D]">&mdash;</span>
                             )}
                           </td>
-                          <td className="px-4 py-3.5 text-right text-xs text-gray-500" title={time.full}>
+                          <td className="py-2.5 text-right font-mono text-[11px] text-[#3D4350]" title={time.full}>
                             {time.relative}
                           </td>
                         </tr>
@@ -349,64 +412,22 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Active Opportunities — takes 1 col */}
-          <div className="card rounded-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#1F1F1F]">
-              <h2 className="text-sm font-semibold text-gray-200">Top Opportunities</h2>
-              <Link
-                href="/markets"
-                className="text-[11px] text-gray-500 hover:text-[#F0B90B] uppercase tracking-wide transition-colors"
-              >
-                View All
-              </Link>
-            </div>
-
-            {topOpportunities.length === 0 ? (
-              <div className="px-6 py-12 text-center">
-                <div className="text-gray-500 text-sm">No opportunities</div>
-                <div className="text-gray-600 text-xs mt-1">Scanning for spreads...</div>
-              </div>
-            ) : (
-              <div className="divide-y divide-[#1F1F1F]">
-                {topOpportunities.map((opp, idx) => {
-                  const estProfit = Number(opp.estProfit) / 1e18
-                  const totalCost = Number(opp.totalCost) / 1e18
-                  return (
-                    <div
-                      key={`${opp.marketId}-${idx}`}
-                      className={`px-6 py-4 transition-colors hover:bg-[#1A1A1A]/40 ${idx === 0 ? 'row-glow' : ''}`}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-mono text-xs text-gray-400">{truncateAddress(opp.marketId)}</span>
-                        <span className="font-mono tabular-nums text-sm font-semibold text-[#F0B90B]">
-                          {opp.spreadBps} bps
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <div>
-                          <span className="text-gray-500">Profit </span>
-                          <span className="font-mono tabular-nums text-[#F0B90B]/80">{formatUSD(estProfit)}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Cost </span>
-                          <span className="font-mono tabular-nums text-gray-400">{formatUSD(totalCost)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {marketsData && (
-              <div className="px-6 py-3 border-t border-[#1F1F1F] flex items-center gap-2 text-[10px] text-gray-600">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#F0B90B] pulse-dot" />
-                <span className="font-mono tabular-nums">{marketsData.quoteCount}</span> quotes scanned
-              </div>
+          {/* ── Footer status ── */}
+          <div className="flex items-center gap-1.5 text-[10px] font-mono text-[#262D3D] pt-1">
+            <span className="w-1 h-1 rounded-full bg-[#00D4FF]/25 pulse-dot" />
+            <span>{marketsData?.quoteCount ?? 0} quotes</span>
+            <span className="text-[#1C2030]">&middot;</span>
+            <span>3 protocols</span>
+            {marketsData?.updatedAt && (
+              <>
+                <span className="text-[#1C2030]">&middot;</span>
+                <span>{formatRelativeTime(marketsData.updatedAt / 1000).relative}</span>
+              </>
             )}
           </div>
+
         </div>
-      </div>
+      )}
     </div>
   )
 }

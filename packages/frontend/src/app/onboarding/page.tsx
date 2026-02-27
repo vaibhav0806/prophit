@@ -30,36 +30,29 @@ function StepIndicator({ current, steps }: { current: number; steps: readonly st
             {i > 0 && (
               <div
                 className={`w-8 h-px transition-colors duration-300 ${
-                  isDone ? 'bg-[#F0B90B]/50' : 'bg-gray-800'
+                  isDone ? 'bg-[#00D4FF]/50' : 'bg-gray-800'
                 }`}
               />
             )}
             <div className="flex flex-col items-center gap-1.5">
               <div
                 className={`
-                  w-8 h-8 rounded-full flex items-center justify-center text-xs font-mono font-bold
-                  transition-all duration-300
+                  w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-mono font-bold
+                  transition-all duration-300 border
                   ${
                     isActive
-                      ? 'border-2 border-[#F0B90B]/50 text-[#F0B90B] status-pulse'
+                      ? 'border-[#00D4FF] text-[#00D4FF]'
                       : isDone
-                        ? 'border border-[#F0B90B]/30 text-[#F0B90B]'
-                        : 'bg-gray-800/60 border border-gray-700/40 text-gray-600'
+                        ? 'border-[#00D4FF]/30 text-[#00D4FF]'
+                        : 'border-[#262D3D] text-[#3D4350]'
                   }
                 `}
-                style={
-                  isActive
-                    ? { background: 'linear-gradient(180deg, rgba(255,212,59,0.2) 0%, rgba(240,185,11,0.1) 100%)' }
-                    : isDone
-                      ? { background: 'linear-gradient(180deg, rgba(255,212,59,0.1) 0%, rgba(240,185,11,0.05) 100%)' }
-                      : undefined
-                }
               >
                 {isDone ? '✓' : i + 1}
               </div>
               <span
-                className={`text-[10px] uppercase tracking-wider ${
-                  isActive ? 'text-[#F0B90B]' : isDone ? 'text-gray-500' : 'text-gray-700'
+                className={`text-[11px] uppercase tracking-wider ${
+                  isActive ? 'text-[#00D4FF]' : isDone ? 'text-gray-500' : 'text-[#3D4350]'
                 }`}
               >
                 {label}
@@ -97,8 +90,8 @@ function CopyButton({ text }: { text: string }) {
     <button
       onClick={handleCopy}
       className="
-        px-3 py-1.5 rounded-lg text-xs font-medium
-        bg-[#1A1A1A] border border-[#2A2A2A]
+        px-3 py-1.5 rounded-lg text-[13px] font-medium
+        bg-[#191C24] border border-[#262D3D]
         text-gray-400 hover:text-white hover:border-gray-600/80
         transition-all duration-150
       "
@@ -114,66 +107,46 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
   return (
     <div className="text-center max-w-lg mx-auto">
       <div className="mb-4">
-        <h1 className="text-3xl font-bold tracking-tight heading-accent">
+        <h1 className="text-3xl font-bold tracking-tight text-white">
           Welcome to{' '}
           <span
-            className="inline-block font-display uppercase logo-shimmer"
-            style={{
-              background: 'linear-gradient(180deg, #FFD43B 0%, #F0B90B 50%, #C99700 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-            }}
+            className="inline-block font-bold uppercase text-white"
+            style={{ textShadow: '0 0 20px rgba(0, 212, 255, 0.3)' }}
           >
             PROPHIT
           </span>
         </h1>
       </div>
-      <p className="text-sm text-[#555] mb-8">
+      <p className="text-sm text-[#6B7280] mb-8">
         Automated prediction market arbitrage on BNB Smart Chain
       </p>
 
-      <div className="card rounded-2xl p-6 text-left space-y-4 mb-8">
+      <div className="rounded border border-[#1C2030] bg-[#111318] p-6 text-left space-y-4 mb-8">
         <div className="flex items-start gap-3">
-          <span
-            className="mt-0.5 inline-block w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] text-[#F0B90B] font-bold border border-[#F0B90B]/30"
-            style={{ background: 'linear-gradient(180deg, rgba(255,212,59,0.15) 0%, rgba(240,185,11,0.08) 100%)' }}
-          >
-            1
-          </span>
+          <span className="mt-0.5 text-xs font-mono text-[#3D4350] flex-shrink-0 w-4 text-right">1.</span>
           <div>
             <div className="text-sm font-medium text-gray-200">Scan for spreads</div>
-            <div className="text-xs text-gray-500 mt-0.5">
+            <div className="text-[13px] text-gray-500 mt-0.5">
               The agent continuously monitors prediction markets across Polymarket, Kalshi, and
               on-chain protocols for price discrepancies.
             </div>
           </div>
         </div>
         <div className="flex items-start gap-3">
-          <span
-            className="mt-0.5 inline-block w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] text-[#F0B90B] font-bold border border-[#F0B90B]/30"
-            style={{ background: 'linear-gradient(180deg, rgba(255,212,59,0.15) 0%, rgba(240,185,11,0.08) 100%)' }}
-          >
-            2
-          </span>
+          <span className="mt-0.5 text-xs font-mono text-[#3D4350] flex-shrink-0 w-4 text-right">2.</span>
           <div>
             <div className="text-sm font-medium text-gray-200">Execute arbitrage</div>
-            <div className="text-xs text-gray-500 mt-0.5">
+            <div className="text-[13px] text-gray-500 mt-0.5">
               When a profitable spread is found, the agent buys opposing positions across
               platforms to lock in a guaranteed return.
             </div>
           </div>
         </div>
         <div className="flex items-start gap-3">
-          <span
-            className="mt-0.5 inline-block w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] text-[#F0B90B] font-bold border border-[#F0B90B]/30"
-            style={{ background: 'linear-gradient(180deg, rgba(255,212,59,0.15) 0%, rgba(240,185,11,0.08) 100%)' }}
-          >
-            3
-          </span>
+          <span className="mt-0.5 text-xs font-mono text-[#3D4350] flex-shrink-0 w-4 text-right">3.</span>
           <div>
             <div className="text-sm font-medium text-gray-200">Collect profits on resolution</div>
-            <div className="text-xs text-gray-500 mt-0.5">
+            <div className="text-[13px] text-gray-500 mt-0.5">
               When markets resolve, one side always pays out. Your profit is the spread minus
               fees, regardless of the outcome.
             </div>
@@ -183,7 +156,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
 
       <button
         onClick={onNext}
-        className="px-8 py-3 rounded-xl text-sm btn-gold"
+        className="px-8 py-3 rounded-xl text-sm btn-accent"
       >
         Get Started
       </button>
@@ -204,22 +177,22 @@ function FundStep({ onNext }: { onNext: () => void }) {
     <div className="max-w-lg mx-auto">
       <div className="text-center mb-8">
         <h2 className="text-2xl font-bold tracking-tight mb-2">Fund Your Wallet</h2>
-        <p className="text-sm text-[#555]">
+        <p className="text-sm text-[#6B7280]">
           Send USDT and a small amount of BNB (for gas) to this address on BSC
         </p>
       </div>
 
-      <div className="card rounded-2xl p-6 space-y-5">
+      <div className="rounded border border-[#1C2030] bg-[#111318] p-6 space-y-5">
         {/* Deposit address */}
         <div>
-          <div className="text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium mb-2">
+          <div className="text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
             Deposit Address (BSC)
           </div>
           {isLoading ? (
             <div className="skeleton h-10 w-full" />
           ) : wallet?.address ? (
             <div className="flex items-center gap-2">
-              <div className="flex-1 bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg px-3.5 py-2.5 text-sm font-mono tabular-nums text-gray-300 truncate">
+              <div className="flex-1 bg-[#191C24] border border-[#262D3D] rounded-lg px-3.5 py-2.5 text-sm font-mono tabular-nums text-gray-300 truncate">
                 {wallet.address}
               </div>
               <CopyButton text={wallet.address} />
@@ -231,51 +204,51 @@ function FundStep({ onNext }: { onNext: () => void }) {
 
         {/* Balances */}
         <div className="grid grid-cols-2 gap-4">
-          <div className="bg-[#1A1A1A]/60 rounded-lg p-4">
+          <div className="bg-[#191C24]/60 rounded-lg p-4">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium">USDT</span>
-              {usdtMet && <span className="text-[#F0B90B] text-xs">Funded</span>}
+              <span className="text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium">USDT</span>
+              {usdtMet && <span className="text-[#00D4FF] text-[13px]">Funded</span>}
             </div>
             {isLoading ? (
               <div className="skeleton h-7 w-20" />
             ) : (
               <div
                 className={`font-mono text-lg font-bold tabular-nums ${
-                  usdtMet ? 'text-[#F0B90B]' : 'text-gray-400'
+                  usdtMet ? 'text-[#00D4FF]' : 'text-gray-400'
                 }`}
               >
                 ${formatNumber(usdtBalance, 2)}
               </div>
             )}
-            <div className="text-[10px] text-gray-600 mt-1">
+            <div className="text-[11px] text-gray-600 mt-1">
               Min: ${MIN_USDT.toFixed(2)}
             </div>
           </div>
 
-          <div className="bg-[#1A1A1A]/60 rounded-lg p-4">
+          <div className="bg-[#191C24]/60 rounded-lg p-4">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium">BNB</span>
-              {bnbMet && <span className="text-[#F0B90B] text-xs">Funded</span>}
+              <span className="text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium">BNB</span>
+              {bnbMet && <span className="text-[#00D4FF] text-[13px]">Funded</span>}
             </div>
             {isLoading ? (
               <div className="skeleton h-7 w-20" />
             ) : (
               <div
                 className={`font-mono text-lg font-bold tabular-nums ${
-                  bnbMet ? 'text-[#F0B90B]' : 'text-gray-400'
+                  bnbMet ? 'text-[#00D4FF]' : 'text-gray-400'
                 }`}
               >
                 {formatNumber(bnbBalance, 4)}
               </div>
             )}
-            <div className="text-[10px] text-gray-600 mt-1">
+            <div className="text-[11px] text-gray-600 mt-1">
               Min: {MIN_BNB} BNB
             </div>
           </div>
         </div>
 
         {!canContinue && !isLoading && (
-          <div className="flex items-center gap-2 text-xs text-gray-500">
+          <div className="flex items-center gap-2 text-[13px] text-gray-500">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500/60 pulse-dot" />
             Waiting for deposits... balances refresh automatically.
           </div>
@@ -288,7 +261,7 @@ function FundStep({ onNext }: { onNext: () => void }) {
           disabled={!canContinue}
           className="
             px-8 py-3 rounded-xl text-sm
-            btn-gold
+            btn-accent
             disabled:opacity-30 disabled:cursor-not-allowed
           "
         >
@@ -355,16 +328,16 @@ function ConfigureStep({ onNext }: { onNext: () => void }) {
     <div className="max-w-lg mx-auto">
       <div className="text-center mb-8">
         <h2 className="text-2xl font-bold tracking-tight mb-2">Configure Agent</h2>
-        <p className="text-sm text-[#555]">
+        <p className="text-sm text-[#6B7280]">
           Set your trading parameters. You can change these later.
         </p>
       </div>
 
-      <div className="card rounded-2xl p-6 space-y-5">
+      <div className="rounded border border-[#1C2030] bg-[#111318] p-6 space-y-5">
         {/* Trade size range */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium mb-2">
+            <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
               Min Trade Size
               <span className="text-gray-600 ml-1 normal-case tracking-normal">(USDT)</span>
             </label>
@@ -374,11 +347,11 @@ function ConfigureStep({ onNext }: { onNext: () => void }) {
               onChange={(e) => setMinTradeSize(e.target.value)}
               min={1}
               step={1}
-              className="w-full bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg px-3.5 py-2.5 text-sm font-mono tabular-nums focus:outline-none focus:border-[#F0B90B]/50 focus:ring-1 focus:ring-[#F0B90B]/20 transition-colors"
+              className="w-full bg-[#191C24] border border-[#262D3D] rounded-lg px-3.5 py-2.5 text-sm font-mono tabular-nums focus:outline-none focus:border-[#00D4FF]/50 focus:ring-1 focus:ring-[#00D4FF]/20 transition-colors"
             />
           </div>
           <div>
-            <label className="block text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium mb-2">
+            <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
               Max Trade Size
               <span className="text-gray-600 ml-1 normal-case tracking-normal">(USDT)</span>
             </label>
@@ -388,14 +361,14 @@ function ConfigureStep({ onNext }: { onNext: () => void }) {
               onChange={(e) => setMaxTradeSize(e.target.value)}
               min={1}
               step={1}
-              className="w-full bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg px-3.5 py-2.5 text-sm font-mono tabular-nums focus:outline-none focus:border-[#F0B90B]/50 focus:ring-1 focus:ring-[#F0B90B]/20 transition-colors"
+              className="w-full bg-[#191C24] border border-[#262D3D] rounded-lg px-3.5 py-2.5 text-sm font-mono tabular-nums focus:outline-none focus:border-[#00D4FF]/50 focus:ring-1 focus:ring-[#00D4FF]/20 transition-colors"
             />
           </div>
         </div>
 
         {/* Profit margin */}
         <div>
-          <label className="block text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium mb-2">
+          <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
             Min Profit Margin
             <span className="text-gray-600 ml-1 normal-case tracking-normal">
               (% &mdash; {Math.round(Number(minProfitPercent || 0) * 100)} bps)
@@ -408,13 +381,13 @@ function ConfigureStep({ onNext }: { onNext: () => void }) {
             min={0.01}
             max={100}
             step={0.1}
-            className="w-full bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg px-3.5 py-2.5 text-sm font-mono tabular-nums focus:outline-none focus:border-[#F0B90B]/50 focus:ring-1 focus:ring-[#F0B90B]/20 transition-colors"
+            className="w-full bg-[#191C24] border border-[#262D3D] rounded-lg px-3.5 py-2.5 text-sm font-mono tabular-nums focus:outline-none focus:border-[#00D4FF]/50 focus:ring-1 focus:ring-[#00D4FF]/20 transition-colors"
           />
         </div>
 
         {/* Max trades */}
         <div>
-          <label className="block text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium mb-2">
+          <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
             Max Total Trades
             <span className="text-gray-600 ml-1 normal-case tracking-normal">(leave empty for unlimited)</span>
           </label>
@@ -424,13 +397,13 @@ function ConfigureStep({ onNext }: { onNext: () => void }) {
             onChange={(e) => setMaxTrades(e.target.value)}
             min={1}
             placeholder="Unlimited"
-            className="w-full bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg px-3.5 py-2.5 text-sm font-mono tabular-nums placeholder:text-gray-600 focus:outline-none focus:border-[#F0B90B]/50 focus:ring-1 focus:ring-[#F0B90B]/20 transition-colors"
+            className="w-full bg-[#191C24] border border-[#262D3D] rounded-lg px-3.5 py-2.5 text-sm font-mono tabular-nums placeholder:text-gray-600 focus:outline-none focus:border-[#00D4FF]/50 focus:ring-1 focus:ring-[#00D4FF]/20 transition-colors"
           />
         </div>
 
         {/* Resolution window */}
         <div>
-          <label className="block text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium mb-2">
+          <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
             Resolution Window
           </label>
           <div className="flex flex-wrap gap-2">
@@ -444,8 +417,8 @@ function ConfigureStep({ onNext }: { onNext: () => void }) {
                     px-3.5 py-2 rounded-lg text-sm font-medium transition-all duration-150
                     ${
                       isSelected
-                        ? 'bg-[#F0B90B]/15 border border-[#F0B90B]/40 text-[#F0B90B]'
-                        : 'bg-[#1A1A1A] border border-[#2A2A2A] text-gray-400 hover:text-gray-300 hover:border-gray-600/80'
+                        ? 'bg-[#00D4FF]/15 border border-[#00D4FF]/40 text-[#00D4FF]'
+                        : 'bg-[#191C24] border border-[#262D3D] text-gray-400 hover:text-gray-300 hover:border-gray-600/80'
                     }
                   `}
                 >
@@ -457,7 +430,7 @@ function ConfigureStep({ onNext }: { onNext: () => void }) {
         </div>
 
         {error && (
-          <div className="text-red-400 bg-red-950/30 border border-red-900/50 rounded-xl p-4 text-sm">
+          <div className="text-red-400 bg-red-950/30 border border-red-900/50 rounded p-4 text-sm">
             {error}
           </div>
         )}
@@ -469,13 +442,13 @@ function ConfigureStep({ onNext }: { onNext: () => void }) {
           disabled={updateConfig.isPending}
           className="
             flex items-center gap-2.5 px-8 py-3 rounded-xl text-sm
-            btn-gold
+            btn-accent
             disabled:opacity-60 disabled:cursor-not-allowed
           "
         >
           {updateConfig.isPending ? (
             <>
-              <span className="inline-block w-4 h-4 border-2 border-[#8B6914] border-t-[#F0B90B] rounded-full spin-slow" />
+              <span className="inline-block w-4 h-4 border-2 border-[#006680] border-t-[#00D4FF] rounded-full spin-slow" />
               Saving...
             </>
           ) : (
@@ -497,14 +470,14 @@ function ReadyStep() {
   return (
     <div className="max-w-lg mx-auto text-center">
       <div className="mb-8">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-[#F0B90B]/10 border-2 border-[#F0B90B]/30 mb-4">
-          <span className="text-[#F0B90B] text-2xl">&#10003;</span>
+        <div className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-[#00D4FF]/30 mb-4">
+          <span className="text-[#00D4FF] text-sm">&#10003;</span>
         </div>
         <h2 className="text-2xl font-bold tracking-tight mb-2">Ready to Trade</h2>
-        <p className="text-sm text-[#555]">Your agent is configured and funded. Here is a summary.</p>
+        <p className="text-sm text-[#6B7280]">Your agent is configured and funded. Here is a summary.</p>
       </div>
 
-      <div className="card rounded-2xl p-6 text-left">
+      <div className="rounded border border-[#1C2030] bg-[#111318] p-6 text-left">
         {isLoading ? (
           <div className="space-y-3">
             {Array.from({ length: 4 }).map((_, i) => (
@@ -522,7 +495,7 @@ function ReadyStep() {
               value={`$${formatNumber(Number(wallet?.usdtBalance || 0), 2)}`}
               mono
             />
-            <div className="border-t border-[#1F1F1F] my-2" />
+            <div className="border-t border-[#1C2030] my-2" />
             <SummaryRow
               label="Trade Size"
               value={`$${config?.minTradeSize || '—'} – $${config?.maxTradeSize || '—'}`}
@@ -548,7 +521,7 @@ function ReadyStep() {
       <div className="mt-6">
         <button
           onClick={() => router.push('/dashboard')}
-          className="px-8 py-3 rounded-xl text-sm btn-gold"
+          className="px-8 py-3 rounded-xl text-sm btn-accent"
         >
           Start Trading
         </button>
@@ -560,7 +533,7 @@ function ReadyStep() {
 function SummaryRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium">{label}</span>
+      <span className="text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium">{label}</span>
       <span className={`text-sm text-gray-200 ${mono ? 'font-mono tabular-nums' : ''}`}>
         {value}
       </span>
@@ -592,7 +565,7 @@ export default function OnboardingPage() {
           className="absolute inset-0 opacity-20"
           style={{
             backgroundImage: `
-              radial-gradient(ellipse 80% 60% at 50% 30%, rgba(240,185,11,0.06) 0%, transparent 70%)
+              radial-gradient(ellipse 80% 60% at 50% 30%, rgba(0,212,255,0.06) 0%, transparent 70%)
             `,
           }}
         />

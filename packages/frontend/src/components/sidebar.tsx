@@ -82,7 +82,7 @@ export function Sidebar() {
     <>
       {/* Mobile toggle */}
       <button
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded-lg bg-[#111]/90 border border-[#1F1F1F] text-gray-400 hover:text-white transition-colors"
+        className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded-lg bg-[#111318]/90 border border-[#1C2030] text-gray-400 hover:text-white transition-colors"
         onClick={() => setMobileOpen(!mobileOpen)}
       >
         {mobileOpen ? "\u2715" : "\u2630"}
@@ -96,32 +96,29 @@ export function Sidebar() {
       {/* Sidebar */}
       <aside className={`
         fixed lg:sticky top-0 left-0 z-40 h-screen w-56
-        border-r border-[#1A1A1A]
+        border-r border-[#1C2030]
         flex flex-col
         transition-transform lg:translate-x-0
         ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
       `}
-        style={{ background: 'linear-gradient(180deg, #0D0D0D 0%, #0A0A0A 100%)' }}
+        style={{ background: '#0B0D11' }}
       >
         {/* Logo */}
         <div className="px-5 pt-6 pb-4">
-          <Link href="/dashboard" className="block logo-glow">
+          <Link href="/dashboard" className="block">
             <span
-              className="inline-block text-[22px] font-display uppercase tracking-wide"
+              className="inline-block text-[22px] font-bold uppercase tracking-wide text-white"
               style={{
-                background: 'linear-gradient(180deg, #FFD43B 0%, #F0B90B 50%, #C99700 100%)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-                backgroundClip: 'text',
+                textShadow: '0 0 20px rgba(0, 212, 255, 0.3)',
               }}
             >
               PROPHIT
             </span>
           </Link>
-          <p className="text-[8px] text-[#444] mt-1.5 uppercase tracking-[0.35em] font-medium">Arbitrage Engine</p>
+          <p className="text-[9px] text-[#3D4350] mt-1.5 uppercase tracking-[0.35em] font-medium">Arbitrage Engine</p>
         </div>
 
-        <div className="h-px mx-4 bg-gradient-to-r from-[#F0B90B]/15 via-[#F0B90B]/08 to-transparent" />
+        <div className="h-px mx-4 bg-gradient-to-r from-[#00D4FF]/15 via-[#00D4FF]/08 to-transparent" />
 
         {/* Nav */}
         <nav className="flex-1 px-3 mt-3 space-y-0.5">
@@ -135,8 +132,8 @@ export function Sidebar() {
                 className={`
                   nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] transition-all duration-200
                   ${isActive
-                    ? "nav-item-active bg-[#F0B90B]/8 text-[#F0B90B]"
-                    : "text-[#555] hover:text-[#999] hover:bg-white/[0.02]"
+                    ? "nav-item-active bg-[#00D4FF]/8 text-[#00D4FF]"
+                    : "text-[#6B7280] hover:text-[#999] hover:bg-white/[0.02]"
                   }
                 `}
               >
@@ -148,10 +145,10 @@ export function Sidebar() {
         </nav>
 
         {/* Bottom */}
-        <div className="px-4 py-4 border-t border-[#1A1A1A]">
+        <div className="px-4 py-4 border-t border-[#1C2030]">
           <button
             onClick={handleLogout}
-            className="w-full text-[11px] px-3 py-2 rounded-lg text-[#444] hover:text-[#888] hover:bg-white/[0.02] transition-colors text-left uppercase tracking-wider"
+            className="w-full text-xs px-3 py-2 rounded-lg text-[#3D4350] hover:text-[#6B7280] hover:bg-white/[0.02] transition-colors text-left uppercase tracking-wider"
           >
             Sign Out
           </button>

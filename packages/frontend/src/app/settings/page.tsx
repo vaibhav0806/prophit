@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useProfile, useUpdateConfig } from '@/hooks/use-platform-api'
 import { useAuth } from '@/hooks/use-auth'
@@ -163,7 +163,14 @@ export default function SettingsPage() {
   const [maxResolutionDays, setMaxResolutionDays] = useState<number | null>(null)
 
   const [saved, setSaved] = useState(false)
-  const [dirty, setDirty] = useState(false)
+
+  // Snapshot of initial values from the server config
+  type FormSnapshot = {
+    minTradeSize: string; maxTradeSize: string; minSpreadPct: number; maxSpreadPct: number
+    unlimitedTrades: boolean; maxTotalTrades: string; tradingDuration: string
+    dailyLossLimit: string; maxResolutionDays: number | null
+  }
+  const [initial, setInitial] = useState<FormSnapshot | null>(null)
 
   // Auth guard
   useEffect(() => {
@@ -177,24 +184,50 @@ export default function SettingsPage() {
     const config = profile?.config
     if (!config) return
 
-    setMinTradeSize(parseUsdt(config.minTradeSize))
-    setMaxTradeSize(parseUsdt(config.maxTradeSize))
-    setMinSpreadPct(config.minSpreadBps / 100)
-    setMaxSpreadPct((config.maxSpreadBps ?? 400) / 100)
-    setUnlimitedTrades(config.maxTotalTrades === null)
-    setMaxTotalTrades(config.maxTotalTrades !== null ? String(config.maxTotalTrades) : '')
-    setTradingDuration(config.tradingDurationMs ?? '')
-    setDailyLossLimit(parseUsdt(config.dailyLossLimit))
-    setMaxResolutionDays(config.maxResolutionDays)
-    setDirty(false)
+    const snap: FormSnapshot = {
+      minTradeSize: parseUsdt(config.minTradeSize),
+      maxTradeSize: parseUsdt(config.maxTradeSize),
+      minSpreadPct: config.minSpreadBps / 100,
+      maxSpreadPct: (config.maxSpreadBps ?? 400) / 100,
+      unlimitedTrades: config.maxTotalTrades === null,
+      maxTotalTrades: config.maxTotalTrades !== null ? String(config.maxTotalTrades) : '',
+      tradingDuration: config.tradingDurationMs ?? '',
+      dailyLossLimit: parseUsdt(config.dailyLossLimit),
+      maxResolutionDays: config.maxResolutionDays,
+    }
+
+    setMinTradeSize(snap.minTradeSize)
+    setMaxTradeSize(snap.maxTradeSize)
+    setMinSpreadPct(snap.minSpreadPct)
+    setMaxSpreadPct(snap.maxSpreadPct)
+    setUnlimitedTrades(snap.unlimitedTrades)
+    setMaxTotalTrades(snap.maxTotalTrades)
+    setTradingDuration(snap.tradingDuration)
+    setDailyLossLimit(snap.dailyLossLimit)
+    setMaxResolutionDays(snap.maxResolutionDays)
+    setInitial(snap)
   }, [profile?.config])
 
   useEffect(() => {
     populateForm()
   }, [populateForm])
 
+  const dirty = useMemo(() => {
+    if (!initial) return false
+    return (
+      minTradeSize !== initial.minTradeSize ||
+      maxTradeSize !== initial.maxTradeSize ||
+      minSpreadPct !== initial.minSpreadPct ||
+      maxSpreadPct !== initial.maxSpreadPct ||
+      unlimitedTrades !== initial.unlimitedTrades ||
+      maxTotalTrades !== initial.maxTotalTrades ||
+      tradingDuration !== initial.tradingDuration ||
+      dailyLossLimit !== initial.dailyLossLimit ||
+      maxResolutionDays !== initial.maxResolutionDays
+    )
+  }, [initial, minTradeSize, maxTradeSize, minSpreadPct, maxSpreadPct, unlimitedTrades, maxTotalTrades, tradingDuration, dailyLossLimit, maxResolutionDays])
+
   const markDirty = () => {
-    setDirty(true)
     setSaved(false)
   }
 
@@ -222,7 +255,10 @@ export default function SettingsPage() {
     updateConfig.mutate(payload, {
       onSuccess: () => {
         setSaved(true)
-        setDirty(false)
+        setInitial({
+          minTradeSize, maxTradeSize, minSpreadPct, maxSpreadPct,
+          unlimitedTrades, maxTotalTrades, tradingDuration, dailyLossLimit, maxResolutionDays,
+        })
         setTimeout(() => setSaved(false), 3000)
       },
     })

@@ -245,7 +245,6 @@ const CATEGORY_SYNONYMS: Record<string, string> = {
   marco: "finance",
   // Topic-specific categories → broader bucket
   greenland: "politics",
-  geopolitics: "politics",
   iran: "politics",
   // Novelty / Meme (these vary wildly across platforms — unify)
   novelty: "other",

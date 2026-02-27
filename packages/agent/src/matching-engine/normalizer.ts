@@ -57,6 +57,58 @@ export const CONFUSABLES: Record<string, string> = {
   "\u03FF": "c",                 // Ͽ → c (variant)
 };
 
+// ---------------------------------------------------------------------------
+// Entity alias mapping — canonical names for crypto tickers, team names, etc.
+// Applied during title normalization so "ETH" and "Ethereum" produce the same tokens.
+// ---------------------------------------------------------------------------
+
+export const ENTITY_ALIASES: Record<string, string> = {
+  // Crypto: ticker → full name (canonical = lowercase full name)
+  eth: "ethereum",
+  "eth/usd": "ethereum",
+  btc: "bitcoin",
+  "btc/usd": "bitcoin",
+  bnb: "binance coin",
+  sol: "solana",
+  ada: "cardano",
+  dot: "polkadot",
+  avax: "avalanche",
+  matic: "polygon",
+  link: "chainlink",
+  uni: "uniswap",
+  xrp: "ripple",
+  doge: "dogecoin",
+  shib: "shiba inu",
+  // Full name → canonical (for reverse lookups — normalizeEntity strips to lowercase)
+  "ethereum": "ethereum",
+  "bitcoin": "bitcoin",
+  // Stock tickers
+  tsla: "tesla",
+  aapl: "apple",
+  nvda: "nvidia",
+  msft: "microsoft",
+  googl: "google",
+  amzn: "amazon",
+  mstr: "microstrategy",
+  vrt: "vertiv",
+  pstg: "pure storage",
+  cien: "ciena",
+  // Commodity codes
+  si: "silver",
+  gc: "gold",
+  spx: "s&p 500",
+};
+
+/**
+ * Replace known entity aliases with their canonical form in a normalized string.
+ * Operates on word boundaries to avoid partial replacements.
+ */
+export function applyEntityAliases(s: string): string {
+  // Build regex from alias keys, longest first to avoid partial matches
+  const words = s.split(/\s+/);
+  return words.map((w) => ENTITY_ALIASES[w] ?? w).join(" ");
+}
+
 /**
  * Replace Unicode confusables with ASCII equivalents. O(n).
  */
@@ -106,6 +158,9 @@ export function normalizeTitle(
   // Collapse whitespace + trim
   s = s.replace(/\s+/g, " ").trim();
 
+  // Apply entity aliases (ETH → ethereum, BTC → bitcoin, etc.)
+  s = applyEntityAliases(s);
+
   return s;
 }
 
@@ -114,11 +169,18 @@ export function normalizeTitle(
  * Applies confusable replacement + lowercase + trim + strip trailing punct.
  */
 export function normalizeEntity(s: string): string {
-  return replaceConfusables(s)
+  let result = replaceConfusables(s)
     .toLowerCase()
     .trim()
     .replace(/^(?:the|a|an)\s+/, "")
-    .replace(/[?.,!]+$/, "");
+    .replace(/[?.,!]+$/, "")
+    // Strip parenthetical ticker suffixes: "Tesla (TSLA)" → "Tesla", "Silver (SI)" → "Silver"
+    .replace(/\s*\([^)]+\)\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  // Apply entity alias mapping
+  result = applyEntityAliases(result);
+  return result;
 }
 
 /**

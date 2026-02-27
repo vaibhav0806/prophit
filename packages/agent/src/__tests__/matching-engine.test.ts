@@ -48,7 +48,7 @@ describe("normalizer", () => {
 
   describe("normalizeTitle", () => {
     it("lowercases and strips punctuation", () => {
-      expect(normalizeTitle("Will BTC hit $100k?")).toBe("will btc hit 100k");
+      expect(normalizeTitle("Will BTC hit $100k?")).toBe("will bitcoin hit 100k");
     });
 
     it("replaces confusables before normalizing", () => {
@@ -227,7 +227,7 @@ describe("extractTemplate", () => {
     const result = extractTemplate("Will ETH hit $5,000?");
     expect(result).toEqual({
       template: "price-target",
-      entity: "eth",
+      entity: "ethereum",
       params: "5000",
     });
   });
@@ -569,11 +569,12 @@ describe("matchMarkets", () => {
   // -------------------------------------------------------------------------
 
   it("category pre-filter prevents cross-category matches in Pass 3", () => {
-    const a = [{ id: "a1", title: "SuperBowl winner announced today", conditionId: "cond-a", category: "sports" }];
-    const b = [{ id: "b1", title: "SuperBowl winner announced today", conditionId: "cond-b", category: "crypto" }];
+    // Use similar but not identical titles (sim ~0.90) so Pass 3b (>=0.98) doesn't catch them
+    const a = [{ id: "a1", title: "SuperBowl champion team crowned victorious in February", conditionId: "cond-a", category: "sports" }];
+    const b = [{ id: "b1", title: "SuperBowl champion team announced as winner today", conditionId: "cond-b", category: "crypto" }];
     const results = matchMarkets(a, b);
-    // Same title but different categories — should NOT match in Pass 3
-    // (no conditionId match, no template match)
+    // Similar titles but different categories — should NOT match in Pass 3
+    // (no conditionId match, no template match, category mismatch blocks Pass 3, sim < 0.98 blocks Pass 3b)
     expect(results.length).toBe(0);
   });
 
@@ -587,8 +588,9 @@ describe("matchMarkets", () => {
   it("temporal window filter blocks markets resolving far apart", () => {
     const now = Date.now();
     const sixtyDays = 60 * 24 * 60 * 60 * 1000;
-    const a = [{ id: "a1", title: "Lakers vs Celtics NBA Finals 2025", conditionId: "cond-a", resolvesAt: now }];
-    const b = [{ id: "b1", title: "Lakers vs Celtics NBA Finals 2025", conditionId: "cond-b", resolvesAt: now + sixtyDays }];
+    // Use similar but not identical titles (sim ~0.90) so Pass 3b (>=0.98) doesn't catch them
+    const a = [{ id: "a1", title: "Lakers vs Celtics NBA Finals championship game", conditionId: "cond-a", resolvesAt: now }];
+    const b = [{ id: "b1", title: "Lakers vs Celtics NBA Finals winner announced", conditionId: "cond-b", resolvesAt: now + sixtyDays }];
     const results = matchMarkets(a, b);
     expect(results.length).toBe(0);
   });

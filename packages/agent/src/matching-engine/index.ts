@@ -30,6 +30,8 @@ interface TemplateResult {
 // ---------------------------------------------------------------------------
 
 export const SIMILARITY_THRESHOLD = 0.85;
+/** Threshold for cross-category sweep (Pass 3b) — bypasses category/temporal filters */
+export const HIGH_CONFIDENCE_THRESHOLD = 0.98;
 
 export const STOP_WORDS = new Set([
   "will", "the", "a", "an", "by", "be", "of", "in", "to",
@@ -39,21 +41,25 @@ export const STOP_WORDS = new Set([
 ]);
 
 export const TEMPLATE_PATTERNS: { name: string; regex: RegExp }[] = [
-  { name: "fdv-above",    regex: /(?:will )?(.+?) fdv (?:be )?above \$?([\d.,]+[bmk]?)/i },
+  { name: "fdv-above",    regex: /(?:will )?(.+?) (?:fdv|market cap(?: \(fdv\))?) (?:be )?(?:above|>)\s*\$?([\d.,]+[bmk]?)/i },
   { name: "token-launch", regex: /(?:will )?(.+?) launch a token by (.+)/i },
-  { name: "price-target", regex: /(?:will )?(.+?) (?:hit|reach|break) ((?:\((?:low|high)\) )?\$?[\d.,]+[bmk]?)/i },
+  { name: "price-target", regex: /(?:will )?(.+?) (?:hit|reach|break|dip to) ((?:\((?:low|high)\) )?\$?[\d.,]+[bmk]?)/i },
   { name: "win-comp",     regex: /(?:will )?(.+?) win (.+)/i },
   { name: "out-as",       regex: /(?:will )?(.+?) (?:come )?out as (.+)/i },
   { name: "ipo-by",       regex: /(?:will )?(.+?) ipo by (.+)/i },
   // Phase 2 additions — appended after existing patterns to preserve match priority
   { name: "happen-by",    regex: /(?:will )?(.+?) (?:happen|occur) by (.+)/i },
-  { name: "mcap-above",   regex: /(?:will )?(.+?) market cap (?:be )?above \$?([\d.,]+[bmk]?)/i },
+  { name: "mcap-above",   regex: /(?:will )?(.+?) market cap (?:be )?(?:above|>)\s*\$?([\d.,]+[bmk]?)/i },
   { name: "tvl-above",    regex: /(?:will )?(.+?) tvl (?:be )?above \$?([\d.,]+[bmk]?)/i },
   { name: "list-on",      regex: /(?:will )?(.+?) (?:be )?list(?:ed)? on (.+)/i },
   { name: "approved-by",  regex: /(?:will )?(.+?) (?:be )?approved by (.+)/i },
   { name: "partner-with", regex: /(?:will )?(.+?) (?:partner|integrate) with (.+)/i },
   { name: "elected-to",   regex: /(?:will )?(.+?) (?:be )?elected (?:as |to )?(.+)/i },
   { name: "rate-above",   regex: /(?:will )?(.+?) (?:rate|apr|apy) (?:be )?(?:above|over) ([\d.,]+%?)/i },
+  { name: "close-above", regex: /(?:will )?(.+?) close (?:above|below) \$?([\d.,]+[bmk]?)/i },
+  { name: "depeg-by",    regex: /(?:will )?(.+?) depeg (?:by|before) (.+)/i },
+  { name: "acquire-by",  regex: /(?:will )?(.+?) acquire (.+)/i },
+  { name: "return-by",   regex: /(?:will )?(.+?) return (?:by |before )(.+)/i },
 ];
 
 // ---------------------------------------------------------------------------
@@ -158,18 +164,61 @@ export function extractTemplate(title: string): TemplateResult | null {
 export const TEMPORAL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 const CATEGORY_SYNONYMS: Record<string, string> = {
+  // Crypto variants (Predict slugs, Probable tags, Opinion labels)
   cryptocurrency: "crypto",
   cryptocurrencies: "crypto",
   defi: "crypto",
   blockchain: "crypto",
+  tokens: "crypto",
+  "token launches": "crypto",
+  "crypto prices": "crypto",
+  "fdv predictions": "crypto",
+  web3: "crypto",
+  // Politics
   political: "politics",
   election: "politics",
   elections: "politics",
+  geopolitics: "politics",
+  government: "politics",
+  "us politics": "politics",
+  "world politics": "politics",
+  // Sports (Predict uses "sports-and-esports", Probable uses "Sports", Opinion may use "Esports")
   sporting: "sports",
   sport: "sports",
+  "sports and esports": "sports",
+  esports: "sports",
+  nba: "sports",
+  nfl: "sports",
+  soccer: "sports",
+  football: "sports",
+  "world cup": "sports",
+  dota: "sports",
+  "dota 2": "sports",
+  // Culture / Entertainment
   entertainment: "culture",
   pop_culture: "culture",
   "pop culture": "culture",
+  celebrity: "culture",
+  music: "culture",
+  movies: "culture",
+  // Science / Tech
+  science: "tech",
+  technology: "tech",
+  ai: "tech",
+  // Finance
+  finance: "finance",
+  stocks: "finance",
+  "stock market": "finance",
+  commodities: "finance",
+  "fed rates": "finance",
+  economy: "finance",
+  // Novelty / Meme (these vary wildly across platforms — unify)
+  novelty: "other",
+  meme: "other",
+  viral: "other",
+  misc: "other",
+  other: "other",
+  general: "other",
 };
 
 export function normalizeCategory(cat?: string): string {
@@ -341,6 +390,49 @@ export function matchMarkets(
     }
 
     if (bestMatch && bestSimilarity >= SIMILARITY_THRESHOLD) {
+      matchedAIds.add(a.id);
+      matchedBIds.add(bestMatch.id);
+      const { polarityFlip } = detectPolarity(a.title, bestMatch.title);
+      results.push({
+        marketA: a,
+        marketB: bestMatch,
+        matchType: "titleSimilarity",
+        similarity: Math.round(bestSimilarity * 10000) / 10000,
+        polarityFlip,
+      });
+    }
+  }
+
+  // --- Pass 3b: high-confidence cross-category sweep ---
+  // Identical or near-identical titles across different category buckets were
+  // missed by the category pre-filter (platforms use different taxonomies).
+  // Do a targeted sweep of remaining unmatched pairs, bypassing category/temporal
+  // filters, but only accepting very high similarity (>= 0.98).
+  const stillUnmatchedA = unmatchedA.filter((a) => !matchedAIds.has(a.id));
+  const stillUnmatchedB = unmatchedB.filter((b) => !matchedBIds.has(b.id));
+
+  for (const a of stillUnmatchedA) {
+    if (matchedAIds.has(a.id)) continue;
+
+    let bestMatch: MarketInput | null = null;
+    let bestSimilarity = 0;
+
+    for (const b of stillUnmatchedB) {
+      if (matchedBIds.has(b.id)) continue;
+
+      // Template guard still applies
+      const tplA = templateCache.get(`a:${a.id}`);
+      const tplB = templateCache.get(`b:${b.id}`);
+      if (tplA && tplB && tplA.template === tplB.template) continue;
+
+      const sim = compositeSimilarity(a.title, b.title);
+      if (sim > bestSimilarity) {
+        bestSimilarity = sim;
+        bestMatch = b;
+      }
+    }
+
+    if (bestMatch && bestSimilarity >= HIGH_CONFIDENCE_THRESHOLD) {
       matchedAIds.add(a.id);
       matchedBIds.add(bestMatch.id);
       const { polarityFlip } = detectPolarity(a.title, bestMatch.title);

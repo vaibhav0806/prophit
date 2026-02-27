@@ -28,6 +28,7 @@ export interface MarketMatch {
   platformB: DiscoveredMarket;
   matchType: "conditionId" | "templateMatch" | "titleSimilarity";
   similarity: number;
+  polarityFlip: boolean;
   /** @deprecated use platformA/platformB directly */
   probable: DiscoveredMarket;
   /** @deprecated use platformA/platformB directly */
@@ -506,7 +507,15 @@ function matchPlatformPair(
   const aById = new Map(listA.map((m) => [m.id, m]));
   const bById = new Map(listB.map((m) => [m.id, m]));
 
-  const raw = matchMarkets(listA, listB);
+  // Convert DiscoveredMarket → MarketInput with category & resolvesAt
+  const toMarketInput = (m: DiscoveredMarket) => ({
+    id: m.id,
+    title: m.title,
+    conditionId: m.conditionId,
+    category: m.category,
+    resolvesAt: m.resolvesAt ? new Date(m.resolvesAt).getTime() : undefined,
+  });
+  const raw = matchMarkets(listA.map(toMarketInput), listB.map(toMarketInput));
   const matches: MarketMatch[] = [];
   const matchedAIds = new Set<string>();
   const matchedBIds = new Set<string>();
@@ -532,7 +541,7 @@ function matchPlatformPair(
     const b = bById.get(r.marketB.id)!;
     matchedAIds.add(a.id);
     matchedBIds.add(b.id);
-    matches.push(buildMatch(a, b, r.matchType, r.similarity));
+    matches.push(buildMatch(a, b, r.matchType, r.similarity, r.polarityFlip));
   }
 
   // Near-miss logging: iterate unmatched pairs for diagnostics
@@ -572,6 +581,7 @@ function buildMatch(
   b: DiscoveredMarket,
   matchType: "conditionId" | "templateMatch" | "titleSimilarity",
   similarity: number,
+  polarityFlip = false,
 ): MarketMatch {
   // Best-effort assignment of deprecated probable/predict fields.
   // For Predict-anchored matches these are accurate; for Opinion↔Probable
@@ -586,6 +596,7 @@ function buildMatch(
     predict: predictSide ?? b,
     matchType,
     similarity: Math.round(similarity * 10000) / 10000,
+    polarityFlip,
   };
 
   if (probableSide) {

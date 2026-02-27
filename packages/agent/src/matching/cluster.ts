@@ -1,6 +1,7 @@
 import type { EmbeddedQuote } from "./embedder.js";
 import type { MarketQuote } from "../types.js";
 import { log } from "../logger.js";
+import { normalizeCategory, TEMPORAL_WINDOW_MS } from "../matching-engine/index.js";
 
 export interface EventCluster {
   quotes: MarketQuote[];
@@ -46,6 +47,16 @@ export function clusterByEvent(
       if (used.has(j)) continue;
       // Only match across different protocols
       if (embedded[i].quote.protocol === embedded[j].quote.protocol) continue;
+
+      // Category pre-filter: skip cross-category pairs
+      const catI = normalizeCategory(embedded[i].quote.category);
+      const catJ = normalizeCategory(embedded[j].quote.category);
+      if (catI && catJ && catI !== catJ) continue;
+
+      // Temporal window filter
+      if (embedded[i].quote.expiresAt != null && embedded[j].quote.expiresAt != null) {
+        if (Math.abs(embedded[i].quote.expiresAt! - embedded[j].quote.expiresAt!) > TEMPORAL_WINDOW_MS) continue;
+      }
 
       const sim = cosineSimilarity(embedded[i].embedding, embedded[j].embedding);
       if (sim >= threshold) {

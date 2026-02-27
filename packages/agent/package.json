@@ -8,7 +8,8 @@
     "test": "vitest run",
     "discover": "tsx src/scripts/discover-markets.ts",
     "match": "tsx src/scripts/match-markets.ts",
-    "auto-discover": "tsx src/scripts/auto-discover.ts"
+    "auto-discover": "tsx src/scripts/auto-discover.ts",
+    "eval": "tsx src/scripts/eval-matching.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",

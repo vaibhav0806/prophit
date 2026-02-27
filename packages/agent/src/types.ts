@@ -10,6 +10,8 @@ export interface MarketQuote {
   eventDescription?: string;
   expiresAt?: number;
   category?: string;
+  title?: string;                    // market question/title from discovery
+  outcomeLabels?: [string, string];  // [yesLabel, noLabel]
 }
 
 export interface MatchVerification {
@@ -39,6 +41,7 @@ export interface ArbitOpportunity {
   estProfit: bigint;
   liquidityA: bigint; // available liquidity for leg A (6 decimals USDT)
   liquidityB: bigint; // available liquidity for leg B (6 decimals USDT)
+  polarityFlip?: boolean; // YES on A = NO on B (prices inverted)
 }
 
 export interface Position {

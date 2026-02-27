@@ -122,8 +122,39 @@ export function normalizeEntity(s: string): string {
 }
 
 /**
+ * Normalize numeric magnitude suffixes to raw numbers.
+ * "4B" → "4000000000", "10k" → "10000", "1.5M" → "1500000"
+ * Also handles word forms: "4 billion" → "4000000000"
+ */
+export function normalizeMagnitude(s: string): string {
+  // Suffix forms: 4B, 10k, 1.5M, 100K
+  let result = s.replace(/(\d+(?:\.\d+)?)\s*([bBmMkK])\b/g, (_match, num, suffix) => {
+    const n = parseFloat(num);
+    const multipliers: Record<string, number> = {
+      k: 1_000, K: 1_000,
+      m: 1_000_000, M: 1_000_000,
+      b: 1_000_000_000, B: 1_000_000_000,
+    };
+    return String(Math.round(n * (multipliers[suffix] ?? 1)));
+  });
+
+  // Word forms: "4 billion", "10 thousand", "1.5 million"
+  result = result.replace(/(\d+(?:\.\d+)?)\s*(billion|million|thousand)/gi, (_match, num, word) => {
+    const n = parseFloat(num);
+    const multipliers: Record<string, number> = {
+      thousand: 1_000,
+      million: 1_000_000,
+      billion: 1_000_000_000,
+    };
+    return String(Math.round(n * (multipliers[word.toLowerCase()] ?? 1)));
+  });
+
+  return result;
+}
+
+/**
  * Normalize template parameters.
- * Strip $, ?, current year, collapse whitespace, trim.
+ * Strip $, ?, current year, normalize magnitudes, collapse whitespace, trim.
  */
 export function normalizeParams(
   s: string,
@@ -131,6 +162,10 @@ export function normalizeParams(
 ): string {
   const year = opts?.currentYear ?? new Date().getFullYear();
   let result = s.toLowerCase().replace(/[$?]/g, "").replace(/\s+/g, " ").trim();
+  // Collapse digit separators before magnitude normalization
+  result = result.replace(/(\d),(\d)/g, "$1$2");
+  // Normalize magnitude suffixes
+  result = normalizeMagnitude(result);
   const yearStr = String(year);
   result = result.replace(new RegExp(`\\b${yearStr}\\b`, "g"), "");
   // Strip trailing punctuation left behind after year removal (e.g. "June 30," → "June 30")

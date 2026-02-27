@@ -3,6 +3,7 @@ import {
   normalizeEntity,
   normalizeParams,
 } from "./normalizer.js";
+import { detectPolarity } from "./polarity.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -15,6 +16,7 @@ export interface MatchResult {
   marketB: { id: string; title: string; conditionId: string };
   matchType: MatchType;
   similarity: number;
+  polarityFlip: boolean; // YES on A = NO on B
 }
 
 interface TemplateResult {
@@ -32,15 +34,26 @@ export const SIMILARITY_THRESHOLD = 0.85;
 export const STOP_WORDS = new Set([
   "will", "the", "a", "an", "by", "be", "of", "in", "to",
   "and", "or", "is", "it", "at", "on", "for", "has", "have",
+  // Prediction-market-specific stop words that dilute similarity
+  "market", "price", "token", "before", "after", "reach", "above", "below",
 ]);
 
 export const TEMPLATE_PATTERNS: { name: string; regex: RegExp }[] = [
-  { name: "fdv-above",    regex: /(?:will )?(.+?) fdv (?:be )?above \$?([\d.]+[bmk]?)/i },
+  { name: "fdv-above",    regex: /(?:will )?(.+?) fdv (?:be )?above \$?([\d.,]+[bmk]?)/i },
   { name: "token-launch", regex: /(?:will )?(.+?) launch a token by (.+)/i },
-  { name: "price-target", regex: /(?:will )?(.+?) (?:hit|reach|break) ((?:\((?:low|high)\) )?\$?[\d,.]+[bmk]?)/i },
+  { name: "price-target", regex: /(?:will )?(.+?) (?:hit|reach|break) ((?:\((?:low|high)\) )?\$?[\d.,]+[bmk]?)/i },
   { name: "win-comp",     regex: /(?:will )?(.+?) win (.+)/i },
   { name: "out-as",       regex: /(?:will )?(.+?) (?:come )?out as (.+)/i },
   { name: "ipo-by",       regex: /(?:will )?(.+?) ipo by (.+)/i },
+  // Phase 2 additions — appended after existing patterns to preserve match priority
+  { name: "happen-by",    regex: /(?:will )?(.+?) (?:happen|occur) by (.+)/i },
+  { name: "mcap-above",   regex: /(?:will )?(.+?) market cap (?:be )?above \$?([\d.,]+[bmk]?)/i },
+  { name: "tvl-above",    regex: /(?:will )?(.+?) tvl (?:be )?above \$?([\d.,]+[bmk]?)/i },
+  { name: "list-on",      regex: /(?:will )?(.+?) (?:be )?list(?:ed)? on (.+)/i },
+  { name: "approved-by",  regex: /(?:will )?(.+?) (?:be )?approved by (.+)/i },
+  { name: "partner-with", regex: /(?:will )?(.+?) (?:partner|integrate) with (.+)/i },
+  { name: "elected-to",   regex: /(?:will )?(.+?) (?:be )?elected (?:as |to )?(.+)/i },
+  { name: "rate-above",   regex: /(?:will )?(.+?) (?:rate|apr|apy) (?:be )?(?:above|over) ([\d.,]+%?)/i },
 ];
 
 // ---------------------------------------------------------------------------
@@ -138,13 +151,83 @@ export function extractTemplate(title: string): TemplateResult | null {
 }
 
 // ---------------------------------------------------------------------------
+// Category & temporal pre-filtering helpers
+// ---------------------------------------------------------------------------
+
+/** Default temporal window: 30 days in milliseconds */
+export const TEMPORAL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+const CATEGORY_SYNONYMS: Record<string, string> = {
+  cryptocurrency: "crypto",
+  cryptocurrencies: "crypto",
+  defi: "crypto",
+  blockchain: "crypto",
+  political: "politics",
+  election: "politics",
+  elections: "politics",
+  sporting: "sports",
+  sport: "sports",
+  entertainment: "culture",
+  pop_culture: "culture",
+  "pop culture": "culture",
+};
+
+export function normalizeCategory(cat?: string): string {
+  if (!cat) return "";
+  const normalized = cat.toLowerCase().trim().replace(/[\s_-]+/g, " ");
+  return CATEGORY_SYNONYMS[normalized] ?? normalized;
+}
+
+function bucketByCategory(markets: MarketInput[]): Map<string, MarketInput[]> {
+  const buckets = new Map<string, MarketInput[]>();
+  for (const m of markets) {
+    const cat = normalizeCategory(m.category);
+    const key = cat || "__uncategorized__";
+    const arr = buckets.get(key) ?? [];
+    arr.push(m);
+    buckets.set(key, arr);
+  }
+  return buckets;
+}
+
+function getCategoryCandidates(
+  category: string,
+  buckets: Map<string, MarketInput[]>,
+): MarketInput[] {
+  const uncategorized = buckets.get("__uncategorized__") ?? [];
+
+  if (!category) {
+    // Uncategorized market: compare against all buckets
+    const all: MarketInput[] = [];
+    for (const items of buckets.values()) {
+      all.push(...items);
+    }
+    return all;
+  }
+
+  const sameCat = buckets.get(category) ?? [];
+  return [...sameCat, ...uncategorized];
+}
+
+function withinTemporalWindow(
+  aResolves?: number,
+  bResolves?: number,
+): boolean {
+  // Conservative: if either is missing, don't reject
+  if (aResolves == null || bResolves == null) return true;
+  return Math.abs(aResolves - bResolves) <= TEMPORAL_WINDOW_MS;
+}
+
+// ---------------------------------------------------------------------------
 // Market matching — pure function (no logging, no side effects)
 // ---------------------------------------------------------------------------
 
-interface MarketInput {
+export interface MarketInput {
   id: string;
   title: string;
   conditionId: string;
+  category?: string;     // for category bucketing in Pass 3
+  resolvesAt?: number;   // unix timestamp for temporal window filter
 }
 
 /**
@@ -192,7 +275,8 @@ export function matchMarkets(
 
       matchedAIds.add(a.id);
       matchedBIds.add(b.id);
-      results.push({ marketA: a, marketB: b, matchType: "conditionId", similarity: 1.0 });
+      // Same conditionId implies same polarity
+      results.push({ marketA: a, marketB: b, matchType: "conditionId", similarity: 1.0, polarityFlip: false });
     }
   }
 
@@ -216,20 +300,32 @@ export function matchMarkets(
 
     matchedAIds.add(a.id);
     matchedBIds.add(b.id);
-    results.push({ marketA: a, marketB: b, matchType: "templateMatch", similarity: 1.0 });
+    const { polarityFlip } = detectPolarity(a.title, b.title);
+    results.push({ marketA: a, marketB: b, matchType: "templateMatch", similarity: 1.0, polarityFlip });
   }
 
-  // --- Pass 3: composite similarity with template guard ---
+  // --- Pass 3: composite similarity with template guard + category/temporal pre-filter ---
+  const unmatchedA = listA.filter((a) => !matchedAIds.has(a.id));
   const unmatchedB = listB.filter((b) => !matchedBIds.has(b.id));
 
-  for (const a of listA) {
+  // Category bucketing: group unmatched markets by normalized category
+  const bucketedB = bucketByCategory(unmatchedB);
+
+  for (const a of unmatchedA) {
     if (matchedAIds.has(a.id)) continue;
+
+    // Get candidate B markets from same category bucket + uncategorized
+    const aCat = normalizeCategory(a.category);
+    const candidates = getCategoryCandidates(aCat, bucketedB);
 
     let bestMatch: MarketInput | null = null;
     let bestSimilarity = 0;
 
-    for (const b of unmatchedB) {
+    for (const b of candidates) {
       if (matchedBIds.has(b.id)) continue;
+
+      // Temporal window filter: skip if resolution dates are too far apart
+      if (!withinTemporalWindow(a.resolvesAt, b.resolvesAt)) continue;
 
       // Template guard: if both titles match the same template name but
       // were rejected in Pass 2 (different entity/params), skip the pair.
@@ -247,11 +343,13 @@ export function matchMarkets(
     if (bestMatch && bestSimilarity >= SIMILARITY_THRESHOLD) {
       matchedAIds.add(a.id);
       matchedBIds.add(bestMatch.id);
+      const { polarityFlip } = detectPolarity(a.title, bestMatch.title);
       results.push({
         marketA: a,
         marketB: bestMatch,
         matchType: "titleSimilarity",
         similarity: Math.round(bestSimilarity * 10000) / 10000,
+        polarityFlip,
       });
     }
   }

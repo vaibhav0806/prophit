@@ -4,6 +4,7 @@ import {
   normalizeTitle,
   normalizeEntity,
   normalizeParams,
+  normalizeMagnitude,
 } from "../matching-engine/normalizer.js";
 import {
   jaccardSimilarity,
@@ -11,8 +12,11 @@ import {
   compositeSimilarity,
   extractTemplate,
   matchMarkets,
+  normalizeCategory,
   SIMILARITY_THRESHOLD,
+  TEMPORAL_WINDOW_MS,
 } from "../matching-engine/index.js";
+import { detectPolarity } from "../matching-engine/polarity.js";
 
 // ---------------------------------------------------------------------------
 // Normalizer tests
@@ -105,8 +109,8 @@ describe("normalizer", () => {
   });
 
   describe("normalizeParams", () => {
-    it("strips $ and ?", () => {
-      expect(normalizeParams("$100B?")).toBe("100b");
+    it("strips $ and ? and normalizes magnitude", () => {
+      expect(normalizeParams("$100B?")).toBe("100000000000");
     });
 
     it("strips current year and trailing punctuation", () => {
@@ -206,7 +210,7 @@ describe("extractTemplate", () => {
     expect(result).toEqual({
       template: "fdv-above",
       entity: "solana",
-      params: "100b",
+      params: "100000000000",
     });
   });
 
@@ -224,7 +228,7 @@ describe("extractTemplate", () => {
     expect(result).toEqual({
       template: "price-target",
       entity: "eth",
-      params: "5,000",
+      params: "5000",
     });
   });
 
@@ -462,5 +466,274 @@ describe("matchMarkets", () => {
     expect(results.length).toBe(1);
     expect(results[0].marketB.id).toBe("200");
     expect(results[0].matchType).toBe("templateMatch");
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 1: polarityFlip defaults to false for all existing matches
+  // -------------------------------------------------------------------------
+
+  it("polarityFlip defaults to false for conditionId matches", () => {
+    const a = [mkMarket("a1", "Will BTC hit 100k?", "cond-123")];
+    const b = [mkMarket("b1", "Bitcoin to 100k?", "cond-123")];
+    const results = matchMarkets(a, b);
+    expect(results[0].polarityFlip).toBe(false);
+  });
+
+  it("polarityFlip defaults to false for template matches with same phrasing", () => {
+    const a = [mkMarket("a1", "Will Solana FDV be above $100B?", "cond-a")];
+    const b = [mkMarket("b1", "Will Solana FDV be above $100B?", "cond-b")];
+    const results = matchMarkets(a, b);
+    expect(results[0].polarityFlip).toBe(false);
+  });
+
+  it("polarityFlip defaults to false for title similarity matches", () => {
+    const a = [mkMarket("a1", "Lakers vs Celtics NBA Finals 2025", "cond-a")];
+    const b = [mkMarket("b1", "Lakers vs Celtics NBA Finals 2025", "cond-b")];
+    const results = matchMarkets(a, b);
+    expect(results[0].polarityFlip).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 2: New template patterns
+  // -------------------------------------------------------------------------
+
+  it("matches happen-by template", () => {
+    const a = [mkMarket("a1", "Will ETF approval happen by March?", "cond-a")];
+    const b = [mkMarket("b1", "Will ETF approval happen by March?", "cond-b")];
+    const results = matchMarkets(a, b);
+    expect(results.length).toBe(1);
+    expect(results[0].matchType).toBe("templateMatch");
+  });
+
+  it("matches list-on template", () => {
+    const a = [mkMarket("a1", "Will Uniswap be listed on Coinbase?", "cond-a")];
+    const b = [mkMarket("b1", "Will Uniswap be listed on Coinbase?", "cond-b")];
+    const results = matchMarkets(a, b);
+    expect(results.length).toBe(1);
+    expect(results[0].matchType).toBe("templateMatch");
+  });
+
+  it("matches mcap-above template", () => {
+    const a = [mkMarket("a1", "Will Ethereum market cap be above $500B?", "cond-a")];
+    const b = [mkMarket("b1", "Will Ethereum market cap be above $500B?", "cond-b")];
+    const results = matchMarkets(a, b);
+    expect(results.length).toBe(1);
+    expect(results[0].matchType).toBe("templateMatch");
+  });
+
+  it("matches approved-by template", () => {
+    const a = [mkMarket("a1", "Will Bitcoin ETF be approved by SEC?", "cond-a")];
+    const b = [mkMarket("b1", "Will Bitcoin ETF be approved by SEC?", "cond-b")];
+    const results = matchMarkets(a, b);
+    expect(results.length).toBe(1);
+    expect(results[0].matchType).toBe("templateMatch");
+  });
+
+  it("matches partner-with template", () => {
+    const a = [mkMarket("a1", "Will Chainlink partner with Swift?", "cond-a")];
+    const b = [mkMarket("b1", "Will Chainlink partner with Swift?", "cond-b")];
+    const results = matchMarkets(a, b);
+    expect(results.length).toBe(1);
+    expect(results[0].matchType).toBe("templateMatch");
+  });
+
+  it("matches elected-to template", () => {
+    const a = [mkMarket("a1", "Will Harris be elected as President?", "cond-a")];
+    const b = [mkMarket("b1", "Will Harris be elected as President?", "cond-b")];
+    const results = matchMarkets(a, b);
+    expect(results.length).toBe(1);
+    expect(results[0].matchType).toBe("templateMatch");
+  });
+
+  it("template guard blocks different entities on new templates", () => {
+    const a = [mkMarket("a1", "Will Solana be listed on Coinbase?", "cond-a")];
+    const b = [mkMarket("b1", "Will Avalanche be listed on Coinbase?", "cond-b")];
+    const results = matchMarkets(a, b);
+    expect(results.length).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 2: Numeric magnitude normalization
+  // -------------------------------------------------------------------------
+
+  it("matches FDV $4B with FDV $4,000,000,000 via magnitude normalization", () => {
+    const a = [mkMarket("a1", "EdgeX FDV above $4B one day after launch?", "cond-a")];
+    const b = [mkMarket("b1", "EdgeX FDV above $4,000,000,000 one day after launch?", "cond-b")];
+    const results = matchMarkets(a, b);
+    expect(results.length).toBe(1);
+    expect(results[0].matchType).toBe("templateMatch");
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 3: Category & temporal pre-filtering
+  // -------------------------------------------------------------------------
+
+  it("category pre-filter prevents cross-category matches in Pass 3", () => {
+    const a = [{ id: "a1", title: "SuperBowl winner announced today", conditionId: "cond-a", category: "sports" }];
+    const b = [{ id: "b1", title: "SuperBowl winner announced today", conditionId: "cond-b", category: "crypto" }];
+    const results = matchMarkets(a, b);
+    // Same title but different categories — should NOT match in Pass 3
+    // (no conditionId match, no template match)
+    expect(results.length).toBe(0);
+  });
+
+  it("uncategorized markets still match across categories", () => {
+    const a = [{ id: "a1", title: "Lakers vs Celtics NBA Finals 2025", conditionId: "cond-a" }];
+    const b = [{ id: "b1", title: "Lakers vs Celtics NBA Finals 2025", conditionId: "cond-b", category: "sports" }];
+    const results = matchMarkets(a, b);
+    expect(results.length).toBe(1);
+  });
+
+  it("temporal window filter blocks markets resolving far apart", () => {
+    const now = Date.now();
+    const sixtyDays = 60 * 24 * 60 * 60 * 1000;
+    const a = [{ id: "a1", title: "Lakers vs Celtics NBA Finals 2025", conditionId: "cond-a", resolvesAt: now }];
+    const b = [{ id: "b1", title: "Lakers vs Celtics NBA Finals 2025", conditionId: "cond-b", resolvesAt: now + sixtyDays }];
+    const results = matchMarkets(a, b);
+    expect(results.length).toBe(0);
+  });
+
+  it("temporal window filter allows markets resolving within 30 days", () => {
+    const now = Date.now();
+    const tenDays = 10 * 24 * 60 * 60 * 1000;
+    const a = [{ id: "a1", title: "Lakers vs Celtics NBA Finals 2025", conditionId: "cond-a", resolvesAt: now }];
+    const b = [{ id: "b1", title: "Lakers vs Celtics NBA Finals 2025", conditionId: "cond-b", resolvesAt: now + tenDays }];
+    const results = matchMarkets(a, b);
+    expect(results.length).toBe(1);
+  });
+
+  it("temporal window skipped when one market has no resolvesAt", () => {
+    const now = Date.now();
+    const a = [{ id: "a1", title: "Lakers vs Celtics NBA Finals 2025", conditionId: "cond-a", resolvesAt: now }];
+    const b = [{ id: "b1", title: "Lakers vs Celtics NBA Finals 2025", conditionId: "cond-b" }];
+    const results = matchMarkets(a, b);
+    expect(results.length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Polarity detection tests (Phase 1)
+// ---------------------------------------------------------------------------
+
+describe("detectPolarity", () => {
+  it("detects negation asymmetry", () => {
+    const result = detectPolarity(
+      "Will Bitcoin hit $100k?",
+      "Will Bitcoin NOT hit $100k?",
+    );
+    expect(result.polarityFlip).toBe(true);
+    expect(result.confidence).toBeGreaterThanOrEqual(0.8);
+  });
+
+  it("detects antonym pairs (above/below)", () => {
+    const result = detectPolarity(
+      "Will ETH price be above $5000?",
+      "Will ETH price be below $5000?",
+    );
+    expect(result.polarityFlip).toBe(true);
+    expect(result.confidence).toBeGreaterThan(0);
+  });
+
+  it("detects antonym pairs (over/under)", () => {
+    const result = detectPolarity(
+      "Will inflation be over 3%?",
+      "Will inflation be under 3%?",
+    );
+    expect(result.polarityFlip).toBe(true);
+  });
+
+  it("returns no flip for identical titles", () => {
+    const result = detectPolarity(
+      "Will Bitcoin hit $100k?",
+      "Will Bitcoin hit $100k?",
+    );
+    expect(result.polarityFlip).toBe(false);
+  });
+
+  it("returns no flip for unrelated titles", () => {
+    const result = detectPolarity(
+      "Will Bitcoin hit $100k?",
+      "Will Lakers win the NBA Finals?",
+    );
+    expect(result.polarityFlip).toBe(false);
+  });
+
+  it("detects outcome label inversion", () => {
+    const result = detectPolarity(
+      "Will X happen?",
+      "Will X happen?",
+      ["Yes", "No"],
+      ["No", "Yes"],
+    );
+    expect(result.polarityFlip).toBe(true);
+    expect(result.confidence).toBe(0.95);
+  });
+
+  it("no flip when outcome labels match", () => {
+    const result = detectPolarity(
+      "Will X happen?",
+      "Will X happen?",
+      ["Yes", "No"],
+      ["Yes", "No"],
+    );
+    expect(result.polarityFlip).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Numeric magnitude normalization tests (Phase 2)
+// ---------------------------------------------------------------------------
+
+describe("normalizeMagnitude", () => {
+  it("normalizes B suffix", () => {
+    expect(normalizeMagnitude("4B")).toBe("4000000000");
+  });
+
+  it("normalizes M suffix", () => {
+    expect(normalizeMagnitude("500M")).toBe("500000000");
+  });
+
+  it("normalizes k suffix", () => {
+    expect(normalizeMagnitude("10k")).toBe("10000");
+    expect(normalizeMagnitude("10K")).toBe("10000");
+  });
+
+  it("normalizes decimal magnitudes", () => {
+    expect(normalizeMagnitude("1.5B")).toBe("1500000000");
+    expect(normalizeMagnitude("2.5M")).toBe("2500000");
+  });
+
+  it("normalizes word forms", () => {
+    expect(normalizeMagnitude("4 billion")).toBe("4000000000");
+    expect(normalizeMagnitude("10 thousand")).toBe("10000");
+    expect(normalizeMagnitude("1.5 million")).toBe("1500000");
+  });
+
+  it("leaves non-magnitude numbers unchanged", () => {
+    expect(normalizeMagnitude("42")).toBe("42");
+    expect(normalizeMagnitude("100")).toBe("100");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Category normalization tests (Phase 3)
+// ---------------------------------------------------------------------------
+
+describe("normalizeCategory", () => {
+  it("maps synonyms to canonical form", () => {
+    expect(normalizeCategory("cryptocurrency")).toBe("crypto");
+    expect(normalizeCategory("Cryptocurrency")).toBe("crypto");
+    expect(normalizeCategory("DeFi")).toBe("crypto");
+    expect(normalizeCategory("political")).toBe("politics");
+    expect(normalizeCategory("elections")).toBe("politics");
+  });
+
+  it("returns empty string for undefined", () => {
+    expect(normalizeCategory(undefined)).toBe("");
+    expect(normalizeCategory("")).toBe("");
+  });
+
+  it("lowercases and trims", () => {
+    expect(normalizeCategory("  Sports  ")).toBe("sports");
   });
 });

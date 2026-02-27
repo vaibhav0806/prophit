@@ -145,6 +145,7 @@ if (config.opinionAdapterAddress && config.opinionApiKey && config.opinionTokenM
 // Market maps — start from env, merge with auto-discovery if enabled
 let predictMarketMap = config.predictMarketMap ?? {} as Record<string, { predictMarketId: string; yesTokenId: string; noTokenId: string }>;
 let probableMarketMap = config.probableMarketMap ?? {} as Record<string, { probableMarketId: string; conditionId: string; yesTokenId: string; noTokenId: string }>;
+let discoveryTitleMap: Record<string, string> = {};
 
 // Auto-discovery: fetch all markets from both platforms and match cross-protocol
 if (config.autoDiscover && config.predictApiKey) {
@@ -158,6 +159,7 @@ if (config.autoDiscover && config.predictApiKey) {
     // Discovered maps as base, env maps override (env entries take precedence)
     predictMarketMap = { ...result.predictMarketMap, ...predictMarketMap };
     probableMarketMap = { ...result.probableMarketMap, ...probableMarketMap };
+    discoveryTitleMap = result.titleMap;
     log.info("Auto-discovery complete", {
       matches: result.matches.length,
       probableMarkets: Object.keys(probableMarketMap).length,
@@ -355,6 +357,12 @@ const providerQuoteStore: QuoteStore = {
     const allQuotes = results
       .filter((r): r is PromiseFulfilledResult<MarketQuote[]> => r.status === "fulfilled")
       .flatMap((r) => r.value);
+    // Enrich quotes with titles from discovery
+    for (const q of allQuotes) {
+      if (!q.title && discoveryTitleMap[q.marketId]) {
+        q.title = discoveryTitleMap[q.marketId];
+      }
+    }
     const failedProviders = results
       .map((r, i) => r.status === "rejected" ? providers[i].name : null)
       .filter(Boolean);

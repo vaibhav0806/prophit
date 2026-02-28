@@ -21,20 +21,20 @@
 > Full deep-dive: **[ARCHITECTURE.md](./ARCHITECTURE.md)**
 
 ```
-              ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-              │   Frontend   │  │ Telegram Bot │  │  MCP Server  │
-              │  (Dashboard) │  │  (Grammy)    │  │  (Claude)    │
-              │  Next.js     │  │  :4100       │  │  stdio       │
-              └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
-                     │ Privy bearer    │ Bot secret      │ X-User-Wallet
-                     │                 │ X-Telegram-     │
-                     │                 │  Chat-Id        │
-                     └────────┬────────┴─────────────────┘
-                              │
-                       ┌──────▼───────┐
-                       │   Platform   │  Hono :4000
-                       │     API      │  User mgmt, wallet custody, agent lifecycle
-                       └──┬───────┬───┘
+     ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+     │   Frontend   │  │ Telegram Bot │  │  MCP Server  │  │     CLI      │
+     │  (Dashboard) │  │  (Grammy)    │  │  (Claude)    │  │   (REPL)     │
+     │  Next.js     │  │  :4100       │  │  stdio       │  │  readline    │
+     └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+            │ Privy bearer    │ Bot secret      │ X-User-Wallet   │ X-User-Wallet
+            │                 │ X-Telegram-     │                 │
+            │                 │  Chat-Id        │                 │
+            └────────┬────────┴─────────────────┴─────────────────┘
+                     │
+              ┌──────▼───────┐
+              │   Platform   │  Hono :4000
+              │     API      │  User mgmt, wallet custody, agent lifecycle
+              └──┬───────┬───┘
                           │       │
              ┌────────────▼─┐   ┌─▼──────────────┐
              │   Scanner    │   │  Agent Manager │
@@ -108,6 +108,9 @@ pnpm dev
 cd packages/platform && pnpm dev   # API (port 4000)
 cd packages/frontend && pnpm dev   # Frontend (port 3000)
 cd packages/telegram && pnpm dev   # Telegram bot (port 4100)
+
+# CLI (interactive REPL)
+pnpm build:cli && cd packages/cli && pnpm start
 ```
 
 Requires a `.env` in each package — see `.env.example` files.
@@ -121,6 +124,7 @@ packages/
   frontend/      Next.js dashboard: opportunities, trades, agent control, wallet
   telegram/      Telegram bot: agent control, balance, spreads, trade notifications
   mcp/           MCP server: Claude Desktop/Code integration (stdio transport)
+  cli/           Interactive REPL CLI: terminal-based agent control
   shared/        Drizzle ORM schema, shared types, migrations
   contracts/     Solidity vault + protocol adapters (Foundry)
 ```
@@ -197,6 +201,20 @@ src/
 Tools exposed: `login`, `logout`, `get_profile`, `get_status`, `start_agent`, `stop_agent`, `get_balance`, `get_opportunities`, `get_positions`, `update_config`.
 
 Auth flow: `login` → opens browser to `/mcp-link` → user signs in via Privy → wallet address posted back to local callback server → saved to `~/.prophet/credentials.json`.
+
+### CLI
+
+```
+src/
+  index.ts               Entry point: banner, REPL loop (node:readline/promises)
+  api-client.ts          Platform API client (X-User-Wallet auth, same as MCP)
+  commands.ts            12 command handlers (login, status, start, stop, etc.)
+  formatter.ts           Chalk-colored terminal output formatting
+```
+
+Interactive REPL with tab completion. Commands: `login`, `logout`, `status`, `start`, `stop`, `balance`, `opportunities`, `positions`, `config`, `config set <key> <val>`, `help`, `exit`.
+
+Auth flow: same as MCP — `login` opens browser to `/mcp-link`, saves wallet to `~/.prophet/credentials.json`. Shares credentials with MCP server.
 
 ### Frontend Pages
 
@@ -285,6 +303,7 @@ Key test suites:
 | Frontend | Next.js 14, React 18, TanStack Query, Tailwind CSS      |
 | Telegram | Grammy (Telegram Bot API), Node.js HTTP server           |
 | MCP      | @modelcontextprotocol/sdk, stdio transport               |
+| CLI      | node:readline/promises, chalk                            |
 | Auth     | Privy (embedded wallets, delegated signing)              |
 | Chain    | BSC mainnet (56), Gnosis CTF (ERC-1155)                  |
 

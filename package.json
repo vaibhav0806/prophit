@@ -10,6 +10,8 @@
     "dev:telegram": "cd packages/telegram && pnpm dev",
     "dev": "pnpm run dev:agent & pnpm run dev:frontend & pnpm run dev:platform & pnpm dev:telegram & wait",
     "build:mcp": "cd packages/mcp && pnpm build",
+    "build:cli": "cd packages/cli && pnpm build",
+    "dev:cli": "cd packages/cli && pnpm dev",
     "db:generate": "cd packages/shared && pnpm drizzle-kit generate",
     "db:migrate": "cd packages/shared && pnpm drizzle-kit migrate",
     "db:studio": "cd packages/shared && pnpm drizzle-kit studio"

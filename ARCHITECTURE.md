@@ -25,28 +25,29 @@ Prophet is a prediction market arbitrage agent that trades across three BNB Chai
 17. [Frontend](#frontend)
 18. [Telegram Bot](#telegram-bot)
 19. [MCP Server](#mcp-server)
-20. [Database Schema](#database-schema)
-21. [On-Chain Addresses](#on-chain-addresses)
+20. [CLI](#cli)
+21. [Database Schema](#database-schema)
+22. [On-Chain Addresses](#on-chain-addresses)
 
 ---
 
 ## System Overview
 
 ```
-              ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-              │   Frontend   │  │ Telegram Bot │  │  MCP Server  │
-              │  (Dashboard) │  │  (Grammy)    │  │  (Claude)    │
-              │  Next.js     │  │  :4100       │  │  stdio       │
-              └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
-                     │ Privy bearer    │ Bot secret       │ X-User-Wallet
-                     │                 │ X-Telegram-      │
-                     │                 │  Chat-Id         │
-                     └────────┬────────┴──────────────────┘
-                              │
-                       ┌──────▼───────┐
-                       │   Platform   │  Hono :4000
-                       │     API      │  User mgmt, wallet custody, agent lifecycle
-                       └──┬───────┬───┘
+     ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+     │   Frontend   │  │ Telegram Bot │  │  MCP Server  │  │     CLI      │
+     │  (Dashboard) │  │  (Grammy)    │  │  (Claude)    │  │   (REPL)     │
+     │  Next.js     │  │  :4100       │  │  stdio       │  │  readline    │
+     └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+            │ Privy bearer    │ Bot secret      │ X-User-Wallet   │ X-User-Wallet
+            │                 │ X-Telegram-     │                 │
+            │                 │  Chat-Id        │                 │
+            └────────┬────────┴─────────────────┴─────────────────┘
+                     │
+              ┌──────▼───────┐
+              │   Platform   │  Hono :4000
+              │     API      │  User mgmt, wallet custody, agent lifecycle
+              └──┬───────┬───┘
                           │       │
              ┌────────────▼─┐   ┌─▼──────────────┐
              │   Scanner    │   │  Agent Manager  │
@@ -178,6 +179,14 @@ prophit/
 │   │   ├── src/
 │   │   │   ├── index.ts                  # Server setup, 10 tools
 │   │   │   └── api-client.ts             # Platform API client (X-User-Wallet)
+│   │   └── package.json
+│   │
+│   ├── cli/           # Interactive REPL CLI
+│   │   ├── src/
+│   │   │   ├── index.ts                  # Entry: banner, REPL loop (readline)
+│   │   │   ├── api-client.ts             # Platform API client (X-User-Wallet)
+│   │   │   ├── commands.ts               # 12 command handlers
+│   │   │   └── formatter.ts              # Chalk-colored terminal output
 │   │   └── package.json
 │   │
 │   └── shared/         # Shared types & DB schema
@@ -1216,6 +1225,50 @@ Claude → login tool
 ```
 
 The `USER_WALLET_ADDRESS` env var can bypass browser auth for headless/CI usage.
+
+---
+
+## CLI
+
+**Package**: `packages/cli` — Interactive REPL for terminal-based agent control.
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `login` | Open browser for Privy auth, save wallet to `~/.prophet/credentials.json` |
+| `logout` | Clear saved credentials |
+| `status` | Agent running state, trades count, uptime |
+| `start` | Start the trading agent |
+| `stop` | Stop the trading agent |
+| `balance` | Wallet address, USDT/BNB balances |
+| `opportunities` | Current live arbitrage spreads |
+| `positions` | Open and recent trades with P&L |
+| `config` | View current trading configuration |
+| `config set <key> <val>` | Update config (e.g., `config set minSpreadBps 75`) |
+| `help` | List available commands |
+| `exit` / `quit` | Exit the REPL |
+
+### Auth Flow
+
+Same as MCP — shares `~/.prophet/credentials.json` and the `/mcp-link` browser flow. A user who logs in via MCP is already logged in via CLI and vice versa.
+
+```
+User → login command
+  → CLI starts local HTTP server on random port
+  → Opens browser to {FRONTEND_URL}/mcp-link?port={port}
+  → User signs in via Privy
+  → Frontend POSTs wallet address to localhost:{port}/callback
+  → CLI saves to ~/.prophet/credentials.json
+  → Subsequent API calls use X-User-Wallet header
+```
+
+### REPL Features
+
+- Tab completion for all command names
+- Cyan `prophet>` prompt with chalk-colored output
+- Ctrl+C / Ctrl+D for clean exit
+- Error handling with red-colored messages
 
 ### Configuration
 

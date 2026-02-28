@@ -33,6 +33,7 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Pre
 | **Architecture Doc** | Done | Comprehensive `ARCHITECTURE.md` covering all subsystems |
 | **Telegram Bot** | Done | Grammy bot, 11 commands, trade notifications, account linking |
 | **MCP Server** | Done | Claude Desktop/Code integration, 10 tools, browser-based auth |
+| **CLI** | Done | Interactive REPL, 12 commands, tab completion, shared MCP credentials |
 | **Frontend Rebrand** | Done | Serif typography (Cormorant Garamond), dark trading terminal aesthetic |
 
 ### Production Results (Feb 27, 2026)
@@ -71,6 +72,7 @@ packages/
   frontend/      Next.js 14 dashboard (opportunities, trades, agent control, wallet)
   telegram/      Telegram bot (Grammy, agent control, notifications)
   mcp/           MCP server (Claude Desktop/Code integration)
+  cli/           Interactive REPL CLI (terminal-based agent control)
   shared/        Drizzle ORM schema, shared types, migrations
   contracts/     Solidity vault + protocol adapters (Foundry)
 ```
@@ -89,9 +91,10 @@ Scanner (5s) → Providers fetch orderbooks → QuoteStore
 ### Interface Channels
 
 ```
-Frontend (Privy bearer token)  →  Platform API (:4000)
+Frontend (Privy bearer token)    →  Platform API (:4000)
 Telegram Bot (X-Telegram-Chat-Id) → Platform API (:4000)
-MCP Server (X-User-Wallet)     →  Platform API (:4000)
+MCP Server (X-User-Wallet)      →  Platform API (:4000)
+CLI (X-User-Wallet)              →  Platform API (:4000)
 ```
 
 ---
@@ -154,7 +157,9 @@ MCP Server (X-User-Wallet)     →  Platform API (:4000)
 - [x] Trade notification server (HTTP :4100, push trade events to linked Telegram users)
 - [x] MCP server for Claude Desktop/Code integration (10 tools via stdio transport)
 - [x] MCP browser-based auth flow (/mcp-link page → local callback → ~/.prophet/credentials.json)
-- [x] X-User-Wallet header auth in platform middleware (wallet-based auth for MCP)
+- [x] CLI interactive REPL (node:readline/promises, 12 commands, tab completion, chalk output)
+- [x] CLI shares credentials + auth flow with MCP (~/.prophet/credentials.json, X-User-Wallet)
+- [x] X-User-Wallet header auth in platform middleware (wallet-based auth for MCP/CLI)
 - [x] Frontend rebrand: Cormorant Garamond serif typography, Prophet "P" logo SVG
 - [x] Markets → Opportunities rename throughout UI
 - [x] Dashboard redesign: wallet info, copy address, BSCScan link, fund via Privy, export key

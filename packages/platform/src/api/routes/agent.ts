@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { createPublicClient, createWalletClient, http, defineChain } from "viem";
 import type { Database } from "@prophet/shared/db";
-import { userConfigs, trades, tradingWallets } from "@prophet/shared/db";
+import { users, userConfigs, trades, tradingWallets } from "@prophet/shared/db";
 import { eq, and, gt } from "drizzle-orm";
 import type { AgentManager } from "../../agents/agent-manager.js";
 import { getOrCreateWallet } from "../../wallets/privy-wallet.js";
@@ -124,6 +124,31 @@ export function createAgentRoutes(params: {
             closedAt: trade.closedAt ? new Date(trade.closedAt) : null,
           });
           console.log(`[Agent] Trade persisted: ${trade.id} market=${trade.marketId} spread=${trade.spreadBps}bps`);
+
+          // Fire-and-forget Telegram notification
+          if (process.env.TELEGRAM_BOT_WEBHOOK_URL) {
+            const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+            if (user?.telegramChatId) {
+              fetch(`${process.env.TELEGRAM_BOT_WEBHOOK_URL}/notify`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bot ${process.env.TELEGRAM_BOT_SECRET}`,
+                },
+                body: JSON.stringify({
+                  chatId: user.telegramChatId,
+                  event: "trade_executed",
+                  trade: {
+                    id: trade.id,
+                    marketId: trade.marketId,
+                    spreadBps: trade.spreadBps,
+                    totalCost: trade.totalCost,
+                    status: trade.status,
+                  },
+                }),
+              }).catch(() => {});
+            }
+          }
         } catch (err) {
           console.error(`[Agent] Failed to persist trade ${trade.id}:`, err);
         }

@@ -1,44 +1,66 @@
-# Prophet
+<p align="center">
+  <img src="logo.svg" width="120" height="120" alt="Prophet logo" />
+</p>
 
-Autonomous arbitrage agent for BNB Chain prediction markets. Detects price discrepancies across Predict.fun, Probable, and Opinion Labs CLOBs, then executes delta-neutral trades to capture risk-free profit.
+<h1 align="center">Prophet</h1>
+
+<p align="center">
+  Autonomous arbitrage agent for BNB Chain prediction markets.<br/>
+  Detects price discrepancies across Predict.fun, Probable, and Opinion Labs CLOBs,<br/>
+  then executes delta-neutral trades to capture risk-free profit.
+</p>
+
+<p align="center">
+  <a href="#how-it-works">How It Works</a> · <a href="#supported-platforms">Platforms</a> · <a href="#quick-start">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="PLAN.md">Plan</a>
+</p>
+
+---
 
 ## Architecture
 
+> Full deep-dive: **[ARCHITECTURE.md](./ARCHITECTURE.md)**
+
 ```
-                        +-----------+
-                        |  Frontend |  Next.js :3000
-                        |  (Privy)  |  Dashboard, Markets, Trades, Wallet
-                        +-----+-----+
-                              |
-                              | REST (Bearer token)
-                              v
-                     +--------+--------+
-                     |    Platform     |  Hono :4000
-                     |  (multi-tenant) |  Auth, Agent mgmt, Wallet custody
-                     +--------+--------+
-                              |
-              +---------------+---------------+
-              |               |               |
-     +--------v--+    +------v------+   +----v--------+
-     |  Scanner  |    |   Agent     |   |   Deposit   |
-     |  Service  |    |   Manager   |   |   Watcher   |
-     +--------+--+    +------+------+   +-------------+
-              |               |
-     (quotes every 5s)  (per-user agents)
-              |               |
-    +---------+---------+     |
-    |         |         |     |
-+---v---+ +---v----+ +--v--+ |
-|Predict| |Probable| |Opin.| |
-| CLOB  | | CLOB   | |CLOB | |
-+-------+ +--------+ +-----+ |
-    BSC mainnet (chain 56)    |
-                              v
-                  +---------------------+
-                  |  Matching Engine     |
-                  |  3-pass: conditionId |
-                  |  -> template -> sim  |
-                  +---------------------+
+              ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+              │   Frontend   │  │ Telegram Bot │  │  MCP Server  │
+              │  (Dashboard) │  │  (Grammy)    │  │  (Claude)    │
+              │  Next.js     │  │  :4100       │  │  stdio       │
+              └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+                     │ Privy bearer    │ Bot secret      │ X-User-Wallet
+                     │                 │ X-Telegram-     │
+                     │                 │  Chat-Id        │
+                     └────────┬────────┴─────────────────┘
+                              │
+                       ┌──────▼───────┐
+                       │   Platform   │  Hono :4000
+                       │     API      │  User mgmt, wallet custody, agent lifecycle
+                       └──┬───────┬───┘
+                          │       │
+             ┌────────────▼─┐   ┌─▼──────────────┐
+             │   Scanner    │   │  Agent Manager │
+             │   Service    │   │  (per-user)    │
+             └──────┬───────┘   └────────┬───────┘
+                    │                    │
+             ┌──────▼───────┐   ┌────────▼────────┐
+             │  Quote Store │   │ Agent Instance  │
+             │  (in-memory) │──►│  scan() loop    │
+             └──────────────┘   │  every 5s       │
+                                └────────┬────────┘
+                                         │
+                   ┌─────────────────────┬┴──────────────────────┐
+                   │                     │                       │
+            ┌──────▼──────┐    ┌────────▼────────┐    ┌────────▼────────┐
+            │  Arbitrage  │    │    Executor     │    │  Yield Rotator  │
+            │  Detector   │    │  (Vault/CLOB)   │    │  (optional)     │
+            └─────────────┘    └───┬────┬────┬───┘    └─────────────────┘
+                                   │    │    │
+                             ┌──────▼┐ ┌─▼──┐ ┌▼───────┐
+                             │Predict│ │Prob│ │Opinion │  CLOB Clients
+                             │Client │ │able│ │Client  │  (EIP-712 orders)
+                             └───────┘ └────┘ └────────┘
+                                    │    │    │
+                             ───────────────────────────  BNB Chain
+                             Gnosis CTF  │  CLOB Exchanges  │  Safe Proxy
 ```
 
 ## How It Works
@@ -79,11 +101,13 @@ pnpm build
 # Run tests
 pnpm test
 
-# Start platform API (port 4000)
-cd packages/platform && pnpm dev
+# Start all services (platform, frontend, agent, telegram)
+pnpm dev
 
-# Start frontend (port 3000)
-cd packages/frontend && pnpm dev
+# Or individually:
+cd packages/platform && pnpm dev   # API (port 4000)
+cd packages/frontend && pnpm dev   # Frontend (port 3000)
+cd packages/telegram && pnpm dev   # Telegram bot (port 4100)
 ```
 
 Requires a `.env` in each package — see `.env.example` files.
@@ -94,7 +118,9 @@ Requires a `.env` in each package — see `.env.example` files.
 packages/
   agent/         Arbitrage engine: discovery, matching, detection, execution
   platform/      Multi-tenant API: auth, agent mgmt, wallet custody, scanner
-  frontend/      Next.js dashboard: markets, trades, agent control, wallet
+  frontend/      Next.js dashboard: opportunities, trades, agent control, wallet
+  telegram/      Telegram bot: agent control, balance, spreads, trade notifications
+  mcp/           MCP server: Claude Desktop/Code integration (stdio transport)
   shared/        Drizzle ORM schema, shared types, migrations
   contracts/     Solidity vault + protocol adapters (Foundry)
 ```
@@ -138,17 +164,53 @@ src/
     middleware.ts       Privy token verification
 ```
 
+### Telegram Bot
+
+```
+src/
+  bot.ts                 Grammy bot setup, command registration
+  api-client.ts          Platform API client (X-Telegram-Chat-Id auth)
+  commands/
+    start.ts             /start — link account or show welcome
+    help.ts              /help — list all commands
+    status.ts            /status — agent running state
+    run.ts               /run — start trading agent
+    stop.ts              /stop — stop trading agent
+    balance.ts           /balance — wallet balances
+    spreads.ts           /opportunities — live arbitrage spreads
+    positions.ts         /positions — open trades
+    config.ts            /config & /set — view/update trading config
+    logout.ts            /logout — unlink account
+  notifications/
+    server.ts            HTTP server (:4100) for trade notifications
+    formatter.ts         HTML message formatting
+```
+
+### MCP Server
+
+```
+src/
+  index.ts               MCP server (stdio transport), tool registration
+  api-client.ts          Platform API client (X-User-Wallet auth)
+```
+
+Tools exposed: `login`, `logout`, `get_profile`, `get_status`, `start_agent`, `stop_agent`, `get_balance`, `get_opportunities`, `get_positions`, `update_config`.
+
+Auth flow: `login` → opens browser to `/mcp-link` → user signs in via Privy → wallet address posted back to local callback server → saved to `~/.prophet/credentials.json`.
+
 ### Frontend Pages
 
-| Route          | Description                                        |
-|----------------|--------------------------------------------------  |
-| `/login`       | Privy sign-in (email/social)                       |
-| `/onboarding`  | 4-step wizard: welcome, fund, configure, launch    |
-| `/dashboard`   | Agent control, metrics, live spreads, recent trades |
-| `/markets`     | Searchable market browser with protocol links       |
-| `/trades`      | Trade history with expandable leg details           |
-| `/wallet`      | USDT/BNB balances, deposit address, withdrawals     |
-| `/settings`    | Trade sizing, profit margins, daily loss limit      |
+| Route             | Description                                        |
+|-------------------|--------------------------------------------------  |
+| `/login`          | Privy sign-in (email/social)                       |
+| `/onboarding`     | 4-step wizard: welcome, fund, configure, launch    |
+| `/dashboard`      | Agent control, wallet info, live spreads, recent trades |
+| `/markets`        | Filterable opportunity browser with protocol logos  |
+| `/trades`         | Trade history with expandable leg details           |
+| `/wallet`         | USDT/BNB balances, deposit address, withdrawals     |
+| `/settings`       | Trade sizing, profit margins, daily loss limit      |
+| `/link-telegram`  | Link Telegram account to Prophet                   |
+| `/mcp-link`       | Link Claude Desktop/Code via MCP callback          |
 
 ## Matching Engine
 
@@ -193,6 +255,10 @@ Key environment variables:
 | `DATABASE_URL`        | PostgreSQL connection string          | required |
 | `PRIVY_APP_ID`        | Privy auth app ID                     | required |
 | `PRIVY_APP_SECRET`    | Privy auth secret                     | required |
+| `TELEGRAM_BOT_TOKEN`  | Telegram bot token from @BotFather   | required |
+| `TELEGRAM_BOT_SECRET` | Shared secret for bot↔platform auth  | required |
+| `TELEGRAM_NOTIFY_PORT`| Notification webhook port            | 4100     |
+| `USER_WALLET_ADDRESS` | MCP: wallet address (skips browser auth) | optional |
 
 ## Testing
 
@@ -217,6 +283,8 @@ Key test suites:
 | Agent    | Node.js 22, TypeScript, viem                             |
 | Platform | Hono, Drizzle ORM, PostgreSQL, Privy SDK                 |
 | Frontend | Next.js 14, React 18, TanStack Query, Tailwind CSS      |
+| Telegram | Grammy (Telegram Bot API), Node.js HTTP server           |
+| MCP      | @modelcontextprotocol/sdk, stdio transport               |
 | Auth     | Privy (embedded wallets, delegated signing)              |
 | Chain    | BSC mainnet (56), Gnosis CTF (ERC-1155)                  |
 

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { Database } from "@prophet/shared/db";
 import { users, userConfigs } from "@prophet/shared/db";
-import { eq } from "drizzle-orm";
+import { eq, and, ne } from "drizzle-orm";
 import type { AuthEnv } from "../server.js";
 
 export function createConfigRoutes(db: Database): Hono<AuthEnv> {
@@ -90,6 +90,51 @@ export function createConfigRoutes(db: Database): Hono<AuthEnv> {
     if (body.maxResolutionDays !== undefined) updates.maxResolutionDays = body.maxResolutionDays;
 
     await db.update(userConfigs).set(updates).where(eq(userConfigs.userId, userId));
+
+    return c.json({ ok: true });
+  });
+
+  // POST /api/me/telegram/link - Link Telegram chatId to user
+  app.post("/telegram/link", async (c) => {
+    const userId = c.get("userId") as string;
+    const body = await c.req.json<{ chatId: string }>();
+
+    if (!body.chatId) {
+      return c.json({ error: "chatId is required" }, 400);
+    }
+
+    // Check if chatId already linked to a different user
+    const [existing] = await db.select().from(users)
+      .where(and(eq(users.telegramChatId, body.chatId), ne(users.id, userId)))
+      .limit(1);
+
+    if (existing) {
+      return c.json({ error: "This Telegram account is already linked to another user" }, 409);
+    }
+
+    await db.update(users)
+      .set({ telegramChatId: body.chatId })
+      .where(eq(users.id, userId));
+
+    // Notify bot to send welcome message
+    if (process.env.TELEGRAM_BOT_WEBHOOK_URL) {
+      fetch(`${process.env.TELEGRAM_BOT_WEBHOOK_URL}/linked`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bot ${process.env.TELEGRAM_BOT_SECRET}` },
+        body: JSON.stringify({ chatId: body.chatId }),
+      }).catch(() => {});
+    }
+
+    return c.json({ ok: true });
+  });
+
+  // DELETE /api/me/telegram/link - Unlink Telegram from user
+  app.delete("/telegram/link", async (c) => {
+    const userId = c.get("userId") as string;
+
+    await db.update(users)
+      .set({ telegramChatId: null })
+      .where(eq(users.id, userId));
 
     return c.json({ ok: true });
   });

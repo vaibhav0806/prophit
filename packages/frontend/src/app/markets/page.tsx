@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useMarkets } from '@/hooks/use-platform-api'
 import { formatUSD, truncateAddress } from '@/lib/format'
@@ -313,6 +313,14 @@ function Skeleton() {
 // ---------------------------------------------------------------------------
 
 export default function MarketsPage() {
+  return (
+    <Suspense>
+      <MarketsPageInner />
+    </Suspense>
+  )
+}
+
+function MarketsPageInner() {
   const searchParams = useSearchParams()
   const { data, isLoading, dataUpdatedAt } = useMarkets()
   const [search, setSearch] = useState(searchParams.get('q') ?? '')
@@ -410,7 +418,7 @@ export default function MarketsPage() {
 
   return (
     <div className="p-5 lg:p-6 page-enter">
-      <h1 className="text-xs font-semibold text-[#3D4350] uppercase tracking-[0.15em] mb-5">Live Markets</h1>
+      <h1 className="text-xs font-semibold text-[#3D4350] uppercase tracking-[0.15em] mb-5">Opportunities</h1>
 
       {/* Metrics */}
       {data && sorted.length > 0 && (
@@ -634,7 +642,7 @@ export default function MarketsPage() {
       {filtered.length === 0 && sorted.length > 0 && (
         <div className="py-8 text-center">
           <div className="text-xs font-mono text-[#262D3D]">
-            {search ? <>No markets matching &ldquo;{search}&rdquo;</> : 'No markets match current filters'}
+            {search ? <>No opportunities matching &ldquo;{search}&rdquo;</> : 'No opportunities match current filters'}
           </div>
           {hasActiveFilters && (
             <button

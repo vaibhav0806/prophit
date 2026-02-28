@@ -6,6 +6,7 @@ import { relations, sql } from "drizzle-orm";
 export const users = pgTable("users", {
   id: text("id").primaryKey(), // crypto.randomUUID()
   walletAddress: text("wallet_address").notNull().unique(),
+  telegramChatId: text("telegram_chat_id").unique(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   lastLoginAt: timestamp("last_login_at"),
 });

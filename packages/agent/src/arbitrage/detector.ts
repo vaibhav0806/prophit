@@ -72,6 +72,7 @@ export function detectArbitrage(
                 liquidityA: a.yesLiquidity,
                 liquidityB: b.yesLiquidity,
                 polarityFlip: true,
+                quotedAt: Math.min(a.quotedAt, b.quotedAt),
               });
             }
           }
@@ -104,6 +105,7 @@ export function detectArbitrage(
                 liquidityA: a.noLiquidity,
                 liquidityB: b.noLiquidity,
                 polarityFlip: true,
+                quotedAt: Math.min(a.quotedAt, b.quotedAt),
               });
             }
           }

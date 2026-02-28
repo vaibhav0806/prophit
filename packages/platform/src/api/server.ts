@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { authMiddleware } from "../auth/middleware.js";
+import { createAuthMiddleware } from "../auth/middleware.js";
 import { createAuthRoutes } from "./routes/auth.js";
 import { createWalletRoutes } from "./routes/wallet.js";
 import { createAgentRoutes } from "./routes/agent.js";
@@ -73,9 +73,9 @@ export function createPlatformServer(deps: ServerDeps): Hono {
     const db = deps.db;
     app.route("/api/auth", createAuthRoutes(db));
 
-    // Protected routes (require Privy token)
+    // Protected routes (require auth: Privy Bearer token or Bot secret)
     const protectedRoutes = new Hono();
-    protectedRoutes.use("*", authMiddleware);
+    protectedRoutes.use("*", createAuthMiddleware(db));
 
     // Rate limiting — withdrawal endpoint (5 req/min per user)
     protectedRoutes.use("/api/wallet/withdraw", rateLimit({

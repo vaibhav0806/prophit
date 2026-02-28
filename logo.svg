@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#111827"/>
+      <stop offset="100%" stop-color="#0B0D11"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00D4FF" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#00D4FF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="256" fill="url(#bg)"/>
+  <!-- Subtle cyan glow behind letter -->
+  <circle cx="256" cy="240" r="140" fill="url(#glow)"/>
+  <!-- Letter P — Cormorant Garamond Bold, converted to path -->
+  <g transform="translate(119.6, 412.0) scale(0.4968, -0.4968)">
+    <path fill="white" d="M216 85Q216 55 222.5 39.5Q229 24 250.0 18.0Q271 12 312 12Q315 12 315.0 6.0Q315 0 312 0Q280 0 242.5 1.0Q205 2 161 2Q125 2 92.5 1.0Q60 0 34 0Q31 0 31.0 6.0Q31 12 34 12Q65 12 80.0 17.0Q95 22 100.0 37.0Q105 52 105 81V544Q105 573 100.0 587.5Q95 602 80.0 607.5Q65 613 34 613Q31 613 31.0 619.0Q31 625 34 625Q60 625 92.0 623.5Q124 622 160 622Q184 622 223.0 625.0Q262 628 296 628Q359 628 407.5 611.5Q456 595 485.0 559.0Q514 523 516 464Q518 413 499.5 375.0Q481 337 448.5 312.0Q416 287 376.5 274.5Q337 262 298 262Q288 262 275.5 263.0Q263 264 251 267Q248 268 249.0 274.5Q250 281 254 280Q262 278 272.0 277.0Q282 276 288 276Q317 276 341.0 294.0Q365 312 380.0 349.0Q395 386 395 441Q395 494 380.0 530.5Q365 567 336.0 586.5Q307 606 264 606Q246 606 235.5 601.0Q225 596 220.5 582.0Q216 568 216 542Z"/>
+  </g>
+</svg>

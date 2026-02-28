@@ -31,6 +31,9 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Pre
 | **Health Endpoint** | Done | `GET /api/health` with rate limit bypass |
 | **Yield Rotation** | Done | Position scoring (risk-adjusted APY), Half-Kelly allocator, rotation suggestions |
 | **Architecture Doc** | Done | Comprehensive `ARCHITECTURE.md` covering all subsystems |
+| **Telegram Bot** | Done | Grammy bot, 11 commands, trade notifications, account linking |
+| **MCP Server** | Done | Claude Desktop/Code integration, 10 tools, browser-based auth |
+| **Frontend Rebrand** | Done | Serif typography (Cormorant Garamond), dark trading terminal aesthetic |
 
 ### Production Results (Feb 27, 2026)
 
@@ -65,7 +68,9 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full deep-dive covering all sub
 packages/
   agent/         Arbitrage engine (discovery, matching, detection, execution)
   platform/      Multi-tenant API (auth, agent mgmt, wallet custody, scanner)
-  frontend/      Next.js 14 dashboard (markets, trades, agent control, wallet)
+  frontend/      Next.js 14 dashboard (opportunities, trades, agent control, wallet)
+  telegram/      Telegram bot (Grammy, agent control, notifications)
+  mcp/           MCP server (Claude Desktop/Code integration)
   shared/        Drizzle ORM schema, shared types, migrations
   contracts/     Solidity vault + protocol adapters (Foundry)
 ```
@@ -79,6 +84,14 @@ Scanner (5s) → Providers fetch orderbooks → QuoteStore
   → Execute: unreliable leg (Probable/Opinion) FOK first
   → If filled: reliable leg (Predict) FOK
   → Persist trade to DB, track position
+```
+
+### Interface Channels
+
+```
+Frontend (Privy bearer token)  →  Platform API (:4000)
+Telegram Bot (X-Telegram-Chat-Id) → Platform API (:4000)
+MCP Server (X-User-Wallet)     →  Platform API (:4000)
 ```
 
 ---
@@ -135,6 +148,17 @@ Scanner (5s) → Providers fetch orderbooks → QuoteStore
 - [x] Rotation suggestions with exit cost analysis
 - [x] Comprehensive ARCHITECTURE.md documentation
 
+### Phase 5: Multi-Channel Access
+- [x] Telegram bot with Grammy (11 commands: start, help, status, run, stop, balance, opportunities, positions, config, set, logout)
+- [x] Telegram account linking flow (/link-telegram frontend page)
+- [x] Trade notification server (HTTP :4100, push trade events to linked Telegram users)
+- [x] MCP server for Claude Desktop/Code integration (10 tools via stdio transport)
+- [x] MCP browser-based auth flow (/mcp-link page → local callback → ~/.prophet/credentials.json)
+- [x] X-User-Wallet header auth in platform middleware (wallet-based auth for MCP)
+- [x] Frontend rebrand: Cormorant Garamond serif typography, Prophet "P" logo SVG
+- [x] Markets → Opportunities rename throughout UI
+- [x] Dashboard redesign: wallet info, copy address, BSCScan link, fund via Privy, export key
+
 ### Incident Response
 - [x] Feb 25 incident: deposit watcher bigint overflow, Probable isFillOrKill bug
 - [x] Predict LIMIT order precision fixes (amount rounding, tick sizes)
@@ -161,10 +185,9 @@ Scanner (5s) → Providers fetch orderbooks → QuoteStore
 |---|------|--------|
 | 1 | CLOB client integration tests (mocked fetch) | 4h |
 | 2 | Frontend mobile responsiveness | 4h |
-| 3 | Webhook alerting (Discord/Slack) for trades and errors | 2h |
-| 4 | Post-execution slippage tracking (actual vs estimated) | 2h |
-| 5 | Provider health scoring (skip unhealthy APIs) | 2h |
-| 6 | Rate limiting per-user on agent endpoints | 1h |
+| 3 | Post-execution slippage tracking (actual vs estimated) | 2h |
+| 4 | Provider health scoring (skip unhealthy APIs) | 2h |
+| 5 | Rate limiting per-user on agent endpoints | 1h |
 
 ### Low Priority / Nice to Have
 

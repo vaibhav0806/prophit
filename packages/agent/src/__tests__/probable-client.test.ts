@@ -231,7 +231,7 @@ describe("ProbableClobClient", () => {
 
       expect(capturedBody).toBeDefined();
       const parsed = JSON.parse(capturedBody!);
-      expect(parsed.orderType).toBe("FOK");
+      expect(parsed.orderType).toBe("IOC");
     });
   });
 
@@ -473,14 +473,15 @@ describe("ProbableClobClient", () => {
       const client = makeProxyClient()
       await authenticateClient(client)
 
-      // ensureApprovals checks: CTF approved, USDT allowance, then validateSafe
+      // ensureApprovals checks: CTF approved, USDT allowance (exchange), USDT allowance (CTF), then validateSafe
       mockPublicClient.readContract
         .mockResolvedValueOnce(true)  // isApprovedForAll
-        .mockResolvedValueOnce(1n)   // USDT allowance
+        .mockResolvedValueOnce(1n)   // USDT allowance (exchange)
+        .mockResolvedValueOnce(1n)   // USDT allowance (CTF)
         .mockResolvedValueOnce(2n)   // getThreshold → 2
         .mockResolvedValueOnce([mockAccount.address]) // getOwners
 
-      await expect(client.ensureApprovals(mockPublicClient)).rejects.toThrow("threshold is 2")
+      await expect(client.ensureApprovals(mockPublicClient)).rejects.toThrow("expected 1 (multi-sig not supported)")
     })
 
     it("validateSafe throws when EOA not in owners", async () => {
@@ -489,11 +490,12 @@ describe("ProbableClobClient", () => {
 
       mockPublicClient.readContract
         .mockResolvedValueOnce(true)  // isApprovedForAll
-        .mockResolvedValueOnce(1n)   // USDT allowance
+        .mockResolvedValueOnce(1n)   // USDT allowance (exchange)
+        .mockResolvedValueOnce(1n)   // USDT allowance (CTF)
         .mockResolvedValueOnce(1n)   // getThreshold → 1
         .mockResolvedValueOnce(["0x9999999999999999999999999999999999999999"]) // getOwners — different address
 
-      await expect(client.ensureApprovals(mockPublicClient)).rejects.toThrow("not an owner")
+      await expect(client.ensureApprovals(mockPublicClient)).rejects.toThrow("is not an owner of Safe")
     })
 
     it("autoFundSafe transfers when Safe balance is low", async () => {
@@ -504,7 +506,8 @@ describe("ProbableClobClient", () => {
 
       mockPublicClient.readContract
         .mockResolvedValueOnce(true)  // isApprovedForAll (CTF check from proxy)
-        .mockResolvedValueOnce(1n)   // USDT allowance
+        .mockResolvedValueOnce(1n)   // USDT allowance (exchange)
+        .mockResolvedValueOnce(1n)   // USDT allowance (CTF)
         .mockResolvedValueOnce(1n)   // getThreshold → 1
         .mockResolvedValueOnce([mockAccount.address]) // getOwners — includes EOA
         .mockResolvedValueOnce(100n * 10n ** 18n) // Safe USDT balanceOf → 100 USDT (below threshold)
@@ -533,7 +536,8 @@ describe("ProbableClobClient", () => {
 
       mockPublicClient.readContract
         .mockResolvedValueOnce(true)  // isApprovedForAll
-        .mockResolvedValueOnce(1n)   // USDT allowance
+        .mockResolvedValueOnce(1n)   // USDT allowance (exchange)
+        .mockResolvedValueOnce(1n)   // USDT allowance (CTF)
         .mockResolvedValueOnce(1n)   // getThreshold → 1
         .mockResolvedValueOnce([mockAccount.address]) // getOwners
         .mockResolvedValueOnce(600n * 10n ** 18n) // Safe USDT balanceOf → 600 USDT (above threshold)

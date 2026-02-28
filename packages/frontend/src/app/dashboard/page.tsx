@@ -500,7 +500,7 @@ export default function DashboardPage() {
                     href="/markets"
                     className="text-xs font-medium font-mono text-[#4A5060] hover:text-[#00D4FF] transition-colors"
                   >
-                    View all markets &rarr;
+                    View all opportunities &rarr;
                   </Link>
                 </div>
               </div>

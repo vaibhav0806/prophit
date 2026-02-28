@@ -7,7 +7,9 @@
     "dev:agent": "cd packages/agent && pnpm dev",
     "dev:frontend": "cd packages/frontend && pnpm dev",
     "dev:platform": "cd packages/platform && pnpm dev",
-    "dev": "pnpm run dev:agent & pnpm run dev:frontend & pnpm run dev:platform & wait",
+    "dev:telegram": "cd packages/telegram && pnpm dev",
+    "dev": "pnpm run dev:agent & pnpm run dev:frontend & pnpm run dev:platform & pnpm dev:telegram & wait",
+    "build:mcp": "cd packages/mcp && pnpm build",
     "db:generate": "cd packages/shared && pnpm drizzle-kit generate",
     "db:migrate": "cd packages/shared && pnpm drizzle-kit migrate",
     "db:studio": "cd packages/shared && pnpm drizzle-kit studio"

@@ -23,50 +23,56 @@ Prophet is a prediction market arbitrage agent that trades across three BNB Chai
 15. [Platform API](#platform-api)
 16. [Wallet Infrastructure](#wallet-infrastructure)
 17. [Frontend](#frontend)
-18. [Database Schema](#database-schema)
-19. [On-Chain Addresses](#on-chain-addresses)
+18. [Telegram Bot](#telegram-bot)
+19. [MCP Server](#mcp-server)
+20. [Database Schema](#database-schema)
+21. [On-Chain Addresses](#on-chain-addresses)
 
 ---
 
 ## System Overview
 
 ```
-                        ┌──────────────┐
-                        │   Frontend   │  Next.js :3000
-                        │  (Dashboard) │  Privy auth, React Query
-                        └──────┬───────┘
-                               │ REST (Privy bearer token)
-                               │
-                        ┌──────▼───────┐
-                        │   Platform   │  Hono :4000
-                        │     API      │  User mgmt, wallet custody, agent lifecycle
-                        └──┬───────┬───┘
-                           │       │
-              ┌────────────▼─┐   ┌─▼──────────────┐
-              │   Scanner    │   │  Agent Manager  │
-              │   Service    │   │  (per-user)     │
-              └──────┬───────┘   └────────┬────────┘
-                     │                    │
-              ┌──────▼───────┐   ┌────────▼────────┐
-              │  Quote Store │   │ Agent Instance   │
-              │  (in-memory) │──►│  scan() loop     │
-              └──────────────┘   │  every 5s        │
-                                 └────────┬────────┘
-                                          │
-                    ┌─────────────────────┬┴──────────────────────┐
-                    │                     │                       │
-             ┌──────▼──────┐    ┌────────▼────────┐    ┌────────▼────────┐
-             │  Arbitrage   │    │    Executor     │    │  Yield Rotator  │
-             │  Detector    │    │  (Vault/CLOB)   │    │  (optional)     │
-             └──────────────┘    └───┬────┬────┬───┘    └─────────────────┘
-                                     │    │    │
-                              ┌──────▼┐ ┌─▼──┐ ┌▼───────┐
-                              │Predict│ │Prob│ │Opinion │  CLOB Clients
-                              │Client │ │able│ │Client  │  (EIP-712 orders)
-                              └───────┘ └────┘ └────────┘
-                                     │    │    │
-                              ───────────────────────────  BNB Chain
-                              Gnosis CTF  │  CLOB Exchanges  │  Safe Proxy
+              ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+              │   Frontend   │  │ Telegram Bot │  │  MCP Server  │
+              │  (Dashboard) │  │  (Grammy)    │  │  (Claude)    │
+              │  Next.js     │  │  :4100       │  │  stdio       │
+              └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+                     │ Privy bearer    │ Bot secret       │ X-User-Wallet
+                     │                 │ X-Telegram-      │
+                     │                 │  Chat-Id         │
+                     └────────┬────────┴──────────────────┘
+                              │
+                       ┌──────▼───────┐
+                       │   Platform   │  Hono :4000
+                       │     API      │  User mgmt, wallet custody, agent lifecycle
+                       └──┬───────┬───┘
+                          │       │
+             ┌────────────▼─┐   ┌─▼──────────────┐
+             │   Scanner    │   │  Agent Manager  │
+             │   Service    │   │  (per-user)     │
+             └──────┬───────┘   └────────┬────────┘
+                    │                    │
+             ┌──────▼───────┐   ┌────────▼────────┐
+             │  Quote Store │   │ Agent Instance   │
+             │  (in-memory) │──►│  scan() loop     │
+             └──────────────┘   │  every 5s        │
+                                └────────┬────────┘
+                                         │
+                   ┌─────────────────────┬┴──────────────────────┐
+                   │                     │                       │
+            ┌──────▼──────┐    ┌────────▼────────┐    ┌────────▼────────┐
+            │  Arbitrage   │    │    Executor     │    │  Yield Rotator  │
+            │  Detector    │    │  (Vault/CLOB)   │    │  (optional)     │
+            └──────────────┘    └───┬────┬────┬───┘    └─────────────────┘
+                                    │    │    │
+                             ┌──────▼┐ ┌─▼──┐ ┌▼───────┐
+                             │Predict│ │Prob│ │Opinion │  CLOB Clients
+                             │Client │ │able│ │Client  │  (EIP-712 orders)
+                             └───────┘ └────┘ └────────┘
+                                    │    │    │
+                             ───────────────────────────  BNB Chain
+                             Gnosis CTF  │  CLOB Exchanges  │  Safe Proxy
 ```
 
 **Core loop**: Scanner fetches quotes every 5s from all three platforms. When a user starts their agent, the `AgentInstance` consumes those quotes, runs arbitrage detection, and executes hedged positions via CLOB limit/market orders. Trades are persisted to PostgreSQL and surfaced through the frontend dashboard.
@@ -146,6 +152,32 @@ prophit/
 │   │   │   ├── components/              # UI components
 │   │   │   ├── hooks/                   # React Query + auth hooks
 │   │   │   └── lib/                     # Formatting utilities
+│   │   └── package.json
+│   │
+│   ├── telegram/      # Telegram bot (Grammy)
+│   │   ├── src/
+│   │   │   ├── bot.ts                    # Bot setup, command registration
+│   │   │   ├── api-client.ts             # Platform API client (X-Telegram-Chat-Id)
+│   │   │   ├── commands/
+│   │   │   │   ├── start.ts              # /start — link or welcome
+│   │   │   │   ├── help.ts               # /help — command list
+│   │   │   │   ├── status.ts             # /status — agent state
+│   │   │   │   ├── run.ts                # /run — start agent
+│   │   │   │   ├── stop.ts               # /stop — stop agent
+│   │   │   │   ├── balance.ts            # /balance — wallet info
+│   │   │   │   ├── spreads.ts            # /opportunities — live spreads
+│   │   │   │   ├── positions.ts          # /positions — open trades
+│   │   │   │   ├── config.ts             # /config & /set
+│   │   │   │   └── logout.ts             # /logout — unlink
+│   │   │   └── notifications/
+│   │   │       ├── server.ts             # HTTP :4100 trade push notifications
+│   │   │       └── formatter.ts          # HTML message formatting
+│   │   └── package.json
+│   │
+│   ├── mcp/           # MCP server (Claude Desktop/Code)
+│   │   ├── src/
+│   │   │   ├── index.ts                  # Server setup, 10 tools
+│   │   │   └── api-client.ts             # Platform API client (X-User-Wallet)
 │   │   └── package.json
 │   │
 │   └── shared/         # Shared types & DB schema
@@ -1008,6 +1040,15 @@ Only 1 suggestion per position (best available improvement).
 | GET | `/api/trades/:id` | Yes | Single trade detail (ownership verified) |
 | GET | `/api/me` | Yes | User profile + trading config |
 | PATCH | `/api/me/config` | Yes | Update trading parameters |
+| POST | `/api/me/telegram/link` | Yes | Link Telegram chatId to user account |
+
+### Authentication Methods
+
+The platform middleware (`auth/middleware.ts`) supports three authentication methods:
+
+1. **Privy Bearer Token** — Frontend sessions. Standard JWT verification via `@privy-io/server-auth`.
+2. **X-Telegram-Chat-Id** — Telegram bot. Looks up user by linked `telegramChatId` in DB. Protected by `Authorization: Bot <secret>`.
+3. **X-User-Wallet** — MCP server. Looks up user by wallet address. Protected by `Authorization: Bot <secret>`.
 
 ### Agent Lifecycle (`POST /api/agent/start`)
 
@@ -1070,11 +1111,13 @@ The Safe has threshold=1, with the Privy embedded wallet as sole owner.
 |-------|---------|
 | `/login` | Privy sign-in (email/social) |
 | `/onboarding` | 4-step wizard: welcome -> fund wallet -> configure -> ready |
-| `/dashboard` | Agent control (start/stop), metrics (balance, P&L, trades), live spreads, recent trades |
-| `/markets` | Searchable list of all live arbitrage opportunities with expandable details |
+| `/dashboard` | Agent control, wallet info (copy/fund/export), live spreads, recent trades |
+| `/markets` | Filterable opportunity browser with protocol pair logos |
 | `/trades` | Paginated trade history with expandable leg details |
 | `/wallet` | Deposit (copy address), withdraw (USDT/BNB), export private key, deposit history |
 | `/settings` | Trade sizing, profit margins, daily loss limit, max trades, resolution window |
+| `/link-telegram` | Link Telegram account via deep link from bot |
+| `/mcp-link` | Link Claude Desktop/Code via MCP callback |
 
 ### Data Flow
 
@@ -1096,6 +1139,102 @@ Frontend (React Query)
 ### Design
 
 Dark theme with cyan (#00D4FF) accent. Skeleton loaders for async data. Status badges with color coding by severity. Responsive sidebar with mobile toggle.
+
+---
+
+## Telegram Bot
+
+**Package**: `packages/telegram` — Grammy (Telegram Bot API framework)
+
+### Account Linking
+
+Users discover the bot via `/start`. If no account is linked, the bot sends a deep link to `{FRONTEND_URL}/link-telegram?chatId={chatId}`. The user signs in via Privy on the frontend, which calls `POST /api/me/telegram/link` with the chatId. The platform then notifies the bot's notification server (`POST /linked`) to send a welcome message.
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Welcome / link account |
+| `/help` | List available commands |
+| `/status` | Agent running state, trades count, uptime |
+| `/run` | Start the trading agent |
+| `/stop` | Stop the trading agent |
+| `/balance` | Wallet address, USDT/BNB balances |
+| `/opportunities` | Current live arbitrage spreads |
+| `/positions` | Open and recent trades with P&L |
+| `/config` | View current trading configuration |
+| `/set <key> <value>` | Update config (e.g., `/set minSpreadBps 75`) |
+| `/logout` | Unlink Telegram account |
+
+### Trade Notifications
+
+The platform pushes trade events to the bot's notification server (`POST /notify` on `:4100`). The bot formats them as HTML messages with trade details (market, spread, cost, status) and sends to the user's chat.
+
+### Auth Flow
+
+```
+User → /start → Bot sends link URL
+  → User opens link in browser → Signs in via Privy
+  → Frontend POST /api/me/telegram/link { chatId }
+  → Platform saves telegramChatId → notifies bot /linked
+  → Bot sends welcome message with account details
+```
+
+Subsequent requests use `X-Telegram-Chat-Id` header + `Authorization: Bot <secret>`.
+
+---
+
+## MCP Server
+
+**Package**: `packages/mcp` — Model Context Protocol server for Claude Desktop and Claude Code integration.
+
+### Tools
+
+| Tool | Description |
+|------|-------------|
+| `login` | Open browser for Privy auth, save wallet to `~/.prophet/credentials.json` |
+| `logout` | Clear saved credentials |
+| `get_profile` | User profile and trading config |
+| `get_status` | Agent running state, trades, uptime |
+| `start_agent` | Start the trading agent |
+| `stop_agent` | Stop the trading agent |
+| `get_balance` | Wallet address, USDT/BNB balances |
+| `get_opportunities` | Current arbitrage opportunities with spreads |
+| `get_positions` | Open and recent trades with P&L |
+| `update_config` | Update trading parameters (minSpreadBps, maxTradeSize, etc.) |
+
+### Auth Flow
+
+```
+Claude → login tool
+  → MCP server starts local HTTP server on random port
+  → Opens browser to {FRONTEND_URL}/mcp-link?port={port}
+  → User signs in via Privy
+  → Frontend POSTs wallet address to localhost:{port}/callback
+  → MCP server saves to ~/.prophet/credentials.json
+  → Subsequent API calls use X-User-Wallet header
+```
+
+The `USER_WALLET_ADDRESS` env var can bypass browser auth for headless/CI usage.
+
+### Configuration
+
+```json
+{
+  "mcpServers": {
+    "prophet": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["packages/mcp/dist/index.js"],
+      "env": {
+        "TELEGRAM_BOT_SECRET": "<shared-secret>",
+        "PLATFORM_URL": "http://localhost:4000",
+        "FRONTEND_URL": "http://localhost:3000"
+      }
+    }
+  }
+}
+```
 
 ---
 

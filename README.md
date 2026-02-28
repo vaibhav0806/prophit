@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="#how-it-works">How It Works</a> · <a href="#supported-platforms">Platforms</a> · <a href="#quick-start">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="PLAN.md">Plan</a>
+  <a href="#access-prophet">Access</a> · <a href="#how-it-works">How It Works</a> · <a href="#supported-platforms">Platforms</a> · <a href="#quick-start">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="PLAN.md">Plan</a>
 </p>
 
 ---
@@ -62,6 +62,15 @@
                              ───────────────────────────  BNB Chain
                              Gnosis CTF  │  CLOB Exchanges  │  Safe Proxy
 ```
+
+## Access Prophet
+
+| Channel | Link |
+|---------|------|
+| Web Dashboard | `localhost:3000` (self-hosted) |
+| Telegram Bot | [@pr0phet_bot](https://t.me/pr0phet_bot) |
+| CLI | `pnpm build:cli && cd packages/cli && pnpm start` |
+| MCP (Claude) | See [MCP Server](#mcp-server) setup below |
 
 ## How It Works
 

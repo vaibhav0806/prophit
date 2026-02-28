@@ -5,10 +5,10 @@
 import "dotenv/config";
 import { createWalletClient, http, defineChain, getAddress } from "viem";
 import { createPrivyAccount } from "../wallets/privy-account.js";
-import { createDb } from "@prophit/shared/db";
-import { tradingWallets } from "@prophit/shared/db";
+import { createDb } from "@prophet/shared/db";
+import { tradingWallets } from "@prophet/shared/db";
 import { eq } from "drizzle-orm";
-import { buildHmacSignature, signClobAuth } from "@prophit/agent/src/clob/signing.js";
+import { buildHmacSignature, signClobAuth } from "@prophet/agent/src/clob/signing.js";
 
 const EOA = "0xdad013d95acb067b2431fde18cbac2bc92ef6b6c" as `0x${string}`;
 const SAFE = "0xD2d193AbB6Ca9365C4D32E52e26a7264F30FfCF9";

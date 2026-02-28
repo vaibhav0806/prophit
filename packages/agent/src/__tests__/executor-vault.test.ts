@@ -32,6 +32,7 @@ function createOpportunity(overrides?: Partial<ArbitOpportunity>): ArbitOpportun
     estProfit: 30_000_000n, // 30 USDT
     liquidityA: 500_000_000n, // 500 USDT
     liquidityB: 500_000_000n,
+    quotedAt: Date.now(),
     ...overrides,
   };
 }

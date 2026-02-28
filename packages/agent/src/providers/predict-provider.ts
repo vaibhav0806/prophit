@@ -2,7 +2,7 @@ import { MarketProvider } from "./base.js";
 import type { MarketQuote, MarketMeta } from "../types.js";
 import { log } from "../logger.js";
 import { withRetry } from "../retry.js";
-import { decimalToBigInt } from "../utils.js";
+import { decimalToBigInt, pMap } from "../utils.js";
 
 const ONE = 10n ** 18n;
 const MIN_LIQUIDITY = 1_000_000n; // 1 USDT minimum liquidity (6 decimals)
@@ -60,12 +60,11 @@ export class PredictProvider extends MarketProvider {
   }
 
   async fetchQuotes(): Promise<MarketQuote[]> {
-    const quotes: MarketQuote[] = [];
+    const entries = this.marketIds
+      .map((id) => ({ id, mapping: this.marketMap.get(id) }))
+      .filter((e): e is { id: `0x${string}`; mapping: NonNullable<typeof e.mapping> } => !!e.mapping);
 
-    for (const marketId of this.marketIds) {
-      const mapping = this.marketMap.get(marketId);
-      if (!mapping) continue;
-
+    const results = await pMap(entries, async ({ id: marketId, mapping }) => {
       try {
         const book = await this.fetchOrderBook(mapping.predictMarketId);
 
@@ -87,30 +86,31 @@ export class PredictProvider extends MarketProvider {
           ? 10n ** 18n - decimalToBigInt(String(noBid[0]), 18)
           : 0n;
 
-        const yesLiq = book.asks.reduce(
-          (sum, [, qty]) => sum + decimalToBigInt(String(qty), 6),
-          0n,
-        );
-        const noLiq = book.bids.reduce(
-          (sum, [, qty]) => sum + decimalToBigInt(String(qty), 6),
-          0n,
-        );
+        // Depth at fillable price: only count levels within order slippage range (200 bps)
+        const yesMaxPrice = yesAsk ? yesAsk[0] * 1.02 : 0;
+        const noMinBid = noBid ? noBid[0] * 0.98 : Infinity;
+        const yesLiq = sortedAsks
+          .filter(([p]) => p <= yesMaxPrice)
+          .reduce((sum, [, qty]) => sum + decimalToBigInt(String(qty), 6), 0n);
+        const noLiq = sortedBids
+          .filter(([p]) => p >= noMinBid)
+          .reduce((sum, [, qty]) => sum + decimalToBigInt(String(qty), 6), 0n);
 
         // Skip quotes with invalid prices or insufficient liquidity
         if (yesPrice <= 0n || noPrice <= 0n) {
           log.warn("Skipping zero-price quote", { marketId, protocol: this.name });
-          continue;
+          return null;
         }
         if (yesPrice >= ONE || noPrice >= ONE) {
           log.warn("Skipping out-of-range price", { marketId, protocol: this.name, yesPrice: yesPrice.toString(), noPrice: noPrice.toString() });
-          continue;
+          return null;
         }
         if (yesLiq < MIN_LIQUIDITY || noLiq < MIN_LIQUIDITY) {
           log.warn("Skipping low-liquidity quote", { marketId, protocol: this.name, yesLiq: yesLiq.toString(), noLiq: noLiq.toString() });
-          continue;
+          return null;
         }
 
-        quotes.push({
+        return {
           marketId,
           protocol: this.name,
           yesPrice,
@@ -119,16 +119,17 @@ export class PredictProvider extends MarketProvider {
           noLiquidity: noLiq,
           feeBps: 200, // Predict minimum fee rate; TODO: fetch per-market feeRateBps from API
           quotedAt: Date.now(),
-        });
+        } satisfies MarketQuote;
       } catch (err) {
         log.warn("Failed to fetch Predict quote", {
           marketId,
           error: String(err),
         });
+        return null;
       }
-    }
+    }, 10);
 
-    return quotes;
+    return results.filter((q): q is MarketQuote => q !== null);
   }
 
   getMarketMeta(marketId: `0x${string}`): MarketMeta | undefined {
@@ -150,7 +151,7 @@ export class PredictProvider extends MarketProvider {
         const url = `${this.apiBase}/v1/markets/${predictMarketId}/orderbook`;
         const res = await fetch(url, {
           headers: { "x-api-key": this.apiKey },
-          signal: AbortSignal.timeout(10_000),
+          signal: AbortSignal.timeout(5_000),
         });
         if (!res.ok) throw new Error(`Predict API error: ${res.status}`);
         const json = await res.json();
@@ -161,7 +162,7 @@ export class PredictProvider extends MarketProvider {
           throw new Error("Invalid orderbook response");
         return book as PredictOrderBook;
       },
-      { label: `Predict orderbook ${predictMarketId}` },
+      { label: `Predict orderbook ${predictMarketId}`, retries: 1, delayMs: 500 },
     );
   }
 }

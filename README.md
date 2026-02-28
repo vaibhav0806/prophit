@@ -1,4 +1,4 @@
-# Prophit
+# Prophet
 
 Autonomous arbitrage agent for BNB Chain prediction markets. Detects price discrepancies across Predict.fun, Probable, and Opinion Labs CLOBs, then executes delta-neutral trades to capture risk-free profit.
 

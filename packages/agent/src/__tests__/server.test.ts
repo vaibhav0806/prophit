@@ -51,6 +51,7 @@ const mockOpportunity: ArbitOpportunity = {
   estProfit: 50_000_000n,
   liquidityA: ONE,
   liquidityB: ONE,
+  quotedAt: Date.now(),
 };
 
 let startAgent: ReturnType<typeof vi.fn>;

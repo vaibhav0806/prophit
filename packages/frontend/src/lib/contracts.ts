@@ -9,7 +9,7 @@ export const ADDRESSES = {
 
 const missing = Object.entries(ADDRESSES).filter(([, v]) => v === ZERO).map(([k]) => k)
 if (missing.length > 0) {
-  console.warn(`[Prophit] Missing contract addresses: ${missing.join(', ')}. Set NEXT_PUBLIC_*_ADDRESS env vars.`)
+  console.warn(`[Prophet] Missing contract addresses: ${missing.join(', ')}. Set NEXT_PUBLIC_*_ADDRESS env vars.`)
 }
 
 export const addressesConfigured = missing.length === 0
@@ -37,7 +37,7 @@ export const VAULT_ABI = [
       {
         name: '',
         type: 'tuple',
-        internalType: 'struct ProphitVault.Position',
+        internalType: 'struct ProphetVault.Position',
         components: [
           { name: 'adapterA', type: 'address', internalType: 'address' },
           { name: 'adapterB', type: 'address', internalType: 'address' },

@@ -71,7 +71,7 @@ export default function LoginPage() {
               letterSpacing: '0.02em',
             }}
           >
-            PROPHIT
+            PROPHET
           </h1>
           <p className="text-[11px] text-[#3D4350] uppercase tracking-[0.3em] font-semibold">
             Prediction Market Arbitrage

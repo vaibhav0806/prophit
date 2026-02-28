@@ -314,7 +314,7 @@ export class ProbableClobClient implements ClobClient {
         expirationSec: this.expirationSec,
         nonce: this.nonce,
         scale: PROBABLE_SCALE,
-        signatureType: this.proxyAddress ? 2 : 0,
+        signatureType: this.proxyAddress ? 2 : 0, // 2 = GNOSIS_SAFE (only type that passes on-chain validation for proxy)
         quantize: true,
         slippageBps: 100, // 1% slippage buffer for FOK fills
       })
@@ -333,7 +333,7 @@ export class ProbableClobClient implements ClobClient {
       // Inner order: salt, maker, signer, taker, tokenId, makerAmount, takerAmount,
       //   side, expiration, nonce, feeRateBps, signatureType, signature
       const body = {
-        deferExec: false,
+        deferExec: true,
         order: {
           salt: serialized.salt,
           maker: serialized.maker,
@@ -350,7 +350,7 @@ export class ProbableClobClient implements ClobClient {
           signature: signed.signature,
         },
         owner: maker,
-        orderType: params.isFillOrKill === false ? "GTC" : "FOK",
+        orderType: params.isFillOrKill === false ? "GTC" : "IOC", // Probable only supports GTC and IOC (not FOK)
       }
 
       log.info("Probable order built", {
@@ -360,6 +360,12 @@ export class ProbableClobClient implements ClobClient {
         size,
         nonce: this.nonce,
         dryRun: this.dryRun,
+        signatureType: order.signatureType,
+        maker: order.maker,
+        signer: order.signer,
+        makerAmount: order.makerAmount.toString(),
+        takerAmount: order.takerAmount.toString(),
+        expiration: order.expiration.toString(),
       })
 
       if (this.dryRun) {
@@ -613,7 +619,7 @@ export class ProbableClobClient implements ClobClient {
       }
     }
 
-    // Check USDT allowance
+    // Check USDT allowance for Exchange
     const allowance = await publicClient.readContract({
       address: BSC_USDT,
       abi: ERC20_ALLOWANCE_ABI,
@@ -627,7 +633,7 @@ export class ProbableClobClient implements ClobClient {
         functionName: "approve",
         args: [this.exchangeAddress, 2n ** 256n - 1n],
       })
-      log.info("USDT allowance is 0 — sending approve (max)", {
+      log.info("USDT allowance is 0 for Exchange — sending approve (max)", {
         usdt: BSC_USDT,
         exchange: this.exchangeAddress,
         from: approvalOwner,
@@ -654,6 +660,49 @@ export class ProbableClobClient implements ClobClient {
       }
     } else {
       log.info("USDT allowance for Probable exchange", { allowance, from: approvalOwner })
+    }
+
+    // Check USDT allowance for CTF Token contract (needed for splitting/merging positions)
+    const ctfAllowance = await publicClient.readContract({
+      address: BSC_USDT,
+      abi: ERC20_ALLOWANCE_ABI,
+      functionName: "allowance",
+      args: [approvalOwner, PROBABLE_CTF_ADDRESS],
+    })
+
+    if (ctfAllowance === 0n) {
+      const callData = encodeFunctionData({
+        abi: ERC20_APPROVE_ABI,
+        functionName: "approve",
+        args: [PROBABLE_CTF_ADDRESS, 2n ** 256n - 1n],
+      })
+      log.info("USDT allowance is 0 for CTF Token — sending approve (max)", {
+        usdt: BSC_USDT,
+        ctf: PROBABLE_CTF_ADDRESS,
+        from: approvalOwner,
+        viaSafe: useSafe,
+      })
+      if (useSafe) {
+        await this.execSafeTransaction(publicClient, BSC_USDT, callData)
+      } else {
+        const txHash = await this.walletClient.writeContract({
+          account,
+          chain: this.walletClient.chain,
+          address: BSC_USDT,
+          abi: ERC20_APPROVE_ABI,
+          functionName: "approve",
+          args: [PROBABLE_CTF_ADDRESS, 2n ** 256n - 1n],
+        })
+        log.info("USDT→CTF approve tx sent, waiting for confirmation", { txHash })
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
+        if (receipt.status === "reverted") {
+          log.error("USDT→CTF approve reverted", { txHash })
+        } else {
+          log.info("USDT→CTF approve confirmed", { txHash, blockNumber: receipt.blockNumber })
+        }
+      }
+    } else {
+      log.info("USDT allowance for Probable CTF", { ctfAllowance, from: approvalOwner })
     }
 
     // Safe validation + auto-funding

@@ -6,8 +6,8 @@
  * Usage: pnpm --filter platform exec tsx src/scripts/clear-safe-address.ts
  */
 import "dotenv/config";
-import { createDb } from "@prophit/shared/db";
-import { tradingWallets } from "@prophit/shared/db";
+import { createDb } from "@prophet/shared/db";
+import { tradingWallets } from "@prophet/shared/db";
 import { isNotNull } from "drizzle-orm";
 
 const databaseUrl = process.env.DATABASE_URL;

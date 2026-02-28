@@ -1,4 +1,4 @@
-# Prophit: Development Plan
+# Prophet: Development Plan
 
 ## One-liner
 
@@ -205,7 +205,7 @@ Normalization pipeline:
 ## Completed Milestones
 
 ### Phase 1: Foundation
-- [x] ProphitVault.sol + 3 protocol adapters (Opinion, Predict, Probable)
+- [x] ProphetVault.sol + 3 protocol adapters (Opinion, Predict, Probable)
 - [x] Agent core loop (scan → detect → simulate → execute)
 - [x] CLOB types + EIP-712 signing
 - [x] Probable CLOB client (HMAC L2, Safe proxy)

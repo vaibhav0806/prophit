@@ -2,7 +2,7 @@ import { MarketProvider } from "./base.js";
 import type { MarketQuote, MarketMeta } from "../types.js";
 import { log } from "../logger.js";
 import { withRetry } from "../retry.js";
-import { decimalToBigInt } from "../utils.js";
+import { decimalToBigInt, pMap } from "../utils.js";
 
 const ONE = 10n ** 18n;
 const MIN_LIQUIDITY = 1_000_000n; // 1 USDT minimum liquidity (6 decimals)
@@ -62,13 +62,12 @@ export class ProbableProvider extends MarketProvider {
   }
 
   async fetchQuotes(): Promise<MarketQuote[]> {
-    const quotes: MarketQuote[] = [];
+    const entries = this.marketIds
+      .filter((id) => !this.deadMarketIds.has(id))
+      .map((id) => ({ id, mapping: this.marketMap.get(id) }))
+      .filter((e): e is { id: `0x${string}`; mapping: NonNullable<typeof e.mapping> } => !!e.mapping);
 
-    for (const marketId of this.marketIds) {
-      if (this.deadMarketIds.has(marketId)) continue;
-      const mapping = this.marketMap.get(marketId);
-      if (!mapping) continue;
-
+    const results = await pMap(entries, async ({ id: marketId, mapping }) => {
       try {
         // Fetch orderbooks for YES and NO tokens
         const [yesBook, noBook] = await Promise.all([
@@ -88,29 +87,31 @@ export class ProbableProvider extends MarketProvider {
           ? decimalToBigInt(sortedNoAsks[0].price, 18)
           : 0n;
 
-        // Liquidity from ask-side order depth (in 6-decimal USDT)
-        const yesLiq = yesBook.asks.reduce(
-          (sum, o) => sum + decimalToBigInt(o.size, 6), 0n,
-        );
-        const noLiq = noBook.asks.reduce(
-          (sum, o) => sum + decimalToBigInt(o.size, 6), 0n,
-        );
+        // Depth at fillable price: only count asks within order slippage range (100 bps)
+        const yesMaxPrice = Number(sortedYesAsks[0]?.price ?? 0) * 1.01;
+        const noMaxPrice = Number(sortedNoAsks[0]?.price ?? 0) * 1.01;
+        const yesLiq = sortedYesAsks
+          .filter(o => Number(o.price) <= yesMaxPrice)
+          .reduce((sum, o) => sum + decimalToBigInt(o.size, 6), 0n);
+        const noLiq = sortedNoAsks
+          .filter(o => Number(o.price) <= noMaxPrice)
+          .reduce((sum, o) => sum + decimalToBigInt(o.size, 6), 0n);
 
         // Skip quotes with invalid prices or insufficient liquidity
         if (yesPrice <= 0n || noPrice <= 0n) {
           log.warn("Skipping zero-price quote", { marketId, protocol: this.name });
-          continue;
+          return null;
         }
         if (yesPrice >= ONE || noPrice >= ONE) {
           log.warn("Skipping out-of-range price", { marketId, protocol: this.name, yesPrice: yesPrice.toString(), noPrice: noPrice.toString() });
-          continue;
+          return null;
         }
         if (yesLiq < MIN_LIQUIDITY || noLiq < MIN_LIQUIDITY) {
           log.warn("Skipping low-liquidity quote", { marketId, protocol: this.name, yesLiq: yesLiq.toString(), noLiq: noLiq.toString() });
-          continue;
+          return null;
         }
 
-        quotes.push({
+        return {
           marketId,
           protocol: this.name,
           yesPrice,
@@ -119,7 +120,7 @@ export class ProbableProvider extends MarketProvider {
           noLiquidity: noLiq,
           feeBps: 175, // Probable minimum fee rate (1.75%)
           quotedAt: Date.now(),
-        });
+        } satisfies MarketQuote;
       } catch (err) {
         if (err instanceof Error && err.message.includes("400")) {
           this.deadMarketIds.add(marketId);
@@ -127,10 +128,11 @@ export class ProbableProvider extends MarketProvider {
         } else {
           log.warn("Failed to fetch Probable quote", { marketId, error: String(err) });
         }
+        return null;
       }
-    }
+    }, 10);
 
-    return quotes;
+    return results.filter((q): q is MarketQuote => q !== null);
   }
 
   /**
@@ -174,12 +176,12 @@ export class ProbableProvider extends MarketProvider {
     return withRetry(async () => {
       const url = `${this.apiBase}/public/api/v1/book?token_id=${tokenId}`;
       const res = await fetch(url, {
-        signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.timeout(5_000),
       });
       if (!res.ok) throw new Error(`Probable API error: ${res.status}`);
       const data = await res.json();
       if (!data.asks || !data.bids) throw new Error("Invalid orderbook response");
       return data as ProbableOrderBook;
-    }, { label: `Probable orderbook ${tokenId}`, shouldRetry: (err) => !(err instanceof Error && err.message.includes("400")) });
+    }, { label: `Probable orderbook ${tokenId}`, retries: 1, delayMs: 500, shouldRetry: (err) => !(err instanceof Error && err.message.includes("400")) });
   }
 }

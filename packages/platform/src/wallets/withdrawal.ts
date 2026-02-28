@@ -1,6 +1,6 @@
 import { encodeFunctionData } from "viem";
-import type { Database } from "@prophit/shared/db";
-import { withdrawals } from "@prophit/shared/db";
+import type { Database } from "@prophet/shared/db";
+import { withdrawals } from "@prophet/shared/db";
 import { eq } from "drizzle-orm";
 import type { PrivyClient } from "@privy-io/node";
 import { authorizationContext } from "../auth/privy.js";

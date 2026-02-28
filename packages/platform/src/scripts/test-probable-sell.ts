@@ -12,9 +12,9 @@
 import "dotenv/config";
 import { createWalletClient, http, defineChain, getAddress } from "viem";
 import { createPrivyAccount } from "../wallets/privy-account.js";
-import { buildOrder, signOrder, serializeOrder, buildHmacSignature, signClobAuth } from "@prophit/agent/src/clob/signing.js";
-import { createDb } from "@prophit/shared/db";
-import { tradingWallets } from "@prophit/shared/db";
+import { buildOrder, signOrder, serializeOrder, buildHmacSignature, signClobAuth } from "@prophet/agent/src/clob/signing.js";
+import { createDb } from "@prophet/shared/db";
+import { tradingWallets } from "@prophet/shared/db";
 import { eq } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------

@@ -105,10 +105,10 @@ importers:
       '@privy-io/node':
         specifier: ^0.9.0
         version: 0.9.0(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10))(viem@2.46.2(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.6))
-      '@prophit/agent':
+      '@prophet/agent':
         specifier: workspace:*
         version: link:../agent
-      '@prophit/shared':
+      '@prophet/shared':
         specifier: workspace:*
         version: link:../shared
       dotenv:

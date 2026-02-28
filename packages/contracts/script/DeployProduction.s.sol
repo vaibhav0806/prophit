@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Script, console2} from "forge-std/Script.sol";
-import {ProphitVault} from "../src/ProphitVault.sol";
+import {ProphetVault} from "../src/ProphetVault.sol";
 import {OpinionAdapter} from "../src/adapters/OpinionAdapter.sol";
 import {PredictAdapter} from "../src/adapters/PredictAdapter.sol";
 import {ProbableAdapter} from "../src/adapters/ProbableAdapter.sol";
@@ -58,9 +58,9 @@ contract DeployProduction is Script {
 
         vm.startBroadcast(deployerKey);
 
-        // 1. Deploy ProphitVault
-        ProphitVault vault = new ProphitVault(BSC_USDT, agent);
-        console2.log("ProphitVault:", address(vault));
+        // 1. Deploy ProphetVault
+        ProphetVault vault = new ProphetVault(BSC_USDT, agent);
+        console2.log("ProphetVault:", address(vault));
 
         // 2. Deploy adapters — each takes (ctf, collateral)
         OpinionAdapter opinionAdapter = new OpinionAdapter(OPINION_CTF, BSC_USDT);
@@ -93,14 +93,14 @@ contract DeployProduction is Script {
         console2.log("  cooldownSeconds:", cooldownSeconds);
 
         // NOTE: USDT approvals from vault to adapters are handled per-trade via
-        // forceApprove() in ProphitVault.openPosition(). No standing approval needed.
+        // forceApprove() in ProphetVault.openPosition(). No standing approval needed.
 
         vm.stopBroadcast();
 
         // --- Summary ---
         console2.log("");
         console2.log("=== Deployment Complete ===");
-        console2.log("ProphitVault:    ", address(vault));
+        console2.log("ProphetVault:    ", address(vault));
         console2.log("OpinionAdapter:  ", address(opinionAdapter));
         console2.log("PredictAdapter:  ", address(predictAdapter));
         console2.log("ProbableAdapter: ", address(probableAdapter));

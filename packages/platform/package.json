@@ -1,5 +1,5 @@
 {
-  "name": "@prophit/platform",
+  "name": "@prophet/platform",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,8 +9,8 @@
   "dependencies": {
     "@hono/node-server": "^1.13.0",
     "@privy-io/node": "^0.9.0",
-    "@prophit/agent": "workspace:*",
-    "@prophit/shared": "workspace:*",
+    "@prophet/agent": "workspace:*",
+    "@prophet/shared": "workspace:*",
     "dotenv": "^16.6.1",
     "drizzle-orm": "^0.38.4",
     "hono": "^4.6.0",

@@ -1,4 +1,4 @@
-# Prophit
+# Prophet
 
 Prediction market arbitrage agent trading across Predict.fun, Probable, and Opinion Labs CLOBs on BNB Chain.
 

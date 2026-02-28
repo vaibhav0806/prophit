@@ -222,6 +222,7 @@ describe("RiskAssessor", () => {
       estProfit: 30_000_000n,
       liquidityA: ONE,
       liquidityB: ONE,
+      quotedAt: Date.now(),
     };
     const quotes = [
       makeQuote({ protocol: "A", eventDescription: "BTC > 100k" }),
@@ -262,6 +263,7 @@ describe("RiskAssessor", () => {
       estProfit: 0n,
       liquidityA: ONE,
       liquidityB: ONE,
+      quotedAt: Date.now(),
     };
     const result = await assessor.assess(opportunity, []);
     expect(result.riskScore).toBe(1);

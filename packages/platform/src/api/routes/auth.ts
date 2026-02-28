@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { verifyPrivyToken } from "../../auth/privy.js";
-import type { Database } from "@prophit/shared/db";
-import { users } from "@prophit/shared/db";
+import type { Database } from "@prophet/shared/db";
+import { users } from "@prophet/shared/db";
 import { eq } from "drizzle-orm";
 
 export function createAuthRoutes(db: Database): Hono {

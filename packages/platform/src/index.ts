@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { serve } from "@hono/node-server";
-import { createDb } from "@prophit/shared/db";
+import { createDb } from "@prophet/shared/db";
 import { ScannerService } from "./scanner/service.js";
 import { QuoteStore } from "./scanner/quote-store.js";
 import { AgentManager } from "./agents/agent-manager.js";

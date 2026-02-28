@@ -1,6 +1,6 @@
 import "dotenv/config";
-import { createDb } from "@prophit/shared/db";
-import { tradingWallets } from "@prophit/shared/db";
+import { createDb } from "@prophet/shared/db";
+import { tradingWallets } from "@prophet/shared/db";
 import { eq } from "drizzle-orm";
 
 const userId = "did:privy:cmm11oxdw003i0cia1qc8yul8";

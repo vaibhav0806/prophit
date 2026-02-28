@@ -1,12 +1,12 @@
 import { createPublicClient, createWalletClient, http, defineChain } from "viem";
-import { AgentInstance } from "@prophit/agent/src/agent-instance.js";
-import type { AgentInstanceConfig, QuoteStore } from "@prophit/agent/src/agent-instance.js";
-import { Executor } from "@prophit/agent/src/execution/executor.js";
-import { ProbableClobClient } from "@prophit/agent/src/clob/probable-client.js";
-import { PredictClobClient } from "@prophit/agent/src/clob/predict-client.js";
-import { OpinionClobClient } from "@prophit/agent/src/clob/opinion-client.js";
-import type { ClobPosition } from "@prophit/agent/src/types.js";
-import type { UserAgentConfig } from "@prophit/shared/types";
+import { AgentInstance } from "@prophet/agent/src/agent-instance.js";
+import type { AgentInstanceConfig, QuoteStore } from "@prophet/agent/src/agent-instance.js";
+import { Executor } from "@prophet/agent/src/execution/executor.js";
+import { ProbableClobClient } from "@prophet/agent/src/clob/probable-client.js";
+import { PredictClobClient } from "@prophet/agent/src/clob/predict-client.js";
+import { OpinionClobClient } from "@prophet/agent/src/clob/opinion-client.js";
+import type { ClobPosition } from "@prophet/agent/src/types.js";
+import type { UserAgentConfig } from "@prophet/shared/types";
 import { createPrivyAccount } from "../wallets/privy-account.js";
 
 const BSC_USDT = "0x55d398326f99059fF775485246999027B3197955" as `0x${string}`;
@@ -68,7 +68,7 @@ export class AgentManager {
 
     const chain = defineChain({
       id: this.platformConfig.chainId,
-      name: this.platformConfig.chainId === 56 ? "BNB Smart Chain" : "prophit-chain",
+      name: this.platformConfig.chainId === 56 ? "BNB Smart Chain" : "prophet-chain",
       nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
       rpcUrls: { default: { http: [this.platformConfig.rpcUrl] } },
     });

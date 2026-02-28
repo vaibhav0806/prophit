@@ -2,7 +2,10 @@ import { MarketProvider } from "./base.js";
 import type { MarketQuote, MarketMeta } from "../types.js";
 import { log } from "../logger.js";
 import { withRetry } from "../retry.js";
-import { decimalToBigInt } from "../utils.js";
+import { decimalToBigInt, pMap } from "../utils.js";
+
+const ONE = 10n ** 18n;
+const MIN_LIQUIDITY = 1_000_000n; // 1 USDT minimum liquidity (6 decimals)
 
 // Opinion API: https://openapi.opinion.trade/openapi
 // Auth: apikey header
@@ -60,12 +63,11 @@ export class OpinionProvider extends MarketProvider {
   }
 
   async fetchQuotes(): Promise<MarketQuote[]> {
-    const quotes: MarketQuote[] = [];
+    const entries = this.marketIds
+      .map((id) => ({ id, mapping: this.tokenMap.get(id) }))
+      .filter((e): e is { id: `0x${string}`; mapping: NonNullable<typeof e.mapping> } => !!e.mapping);
 
-    for (const marketId of this.marketIds) {
-      const mapping = this.tokenMap.get(marketId);
-      if (!mapping) continue;
-
+    const results = await pMap(entries, async ({ id: marketId, mapping }) => {
       try {
         // Fetch orderbooks for YES and NO tokens
         const [yesBook, noBook] = await Promise.all([
@@ -73,23 +75,43 @@ export class OpinionProvider extends MarketProvider {
           this.fetchOrderBook(mapping.noTokenId),
         ]);
 
+        // Sort asks ascending for correct best-price and depth calculation
+        const sortedYesAsks = [...yesBook.asks].sort((a, b) => Number(a.price) - Number(b.price));
+        const sortedNoAsks = [...noBook.asks].sort((a, b) => Number(a.price) - Number(b.price));
+
         // Best ask price = what you'd pay to buy
-        const yesPrice = yesBook.asks.length > 0
-          ? decimalToBigInt(yesBook.asks[0].price, 18)
+        const yesPrice = sortedYesAsks.length > 0
+          ? decimalToBigInt(sortedYesAsks[0].price, 18)
           : 0n;
-        const noPrice = noBook.asks.length > 0
-          ? decimalToBigInt(noBook.asks[0].price, 18)
+        const noPrice = sortedNoAsks.length > 0
+          ? decimalToBigInt(sortedNoAsks[0].price, 18)
           : 0n;
 
-        // Liquidity from order depth (in USDT 6 decimals)
-        const yesLiq = yesBook.asks.reduce(
-          (sum, o) => sum + decimalToBigInt(o.size, 6), 0n,
-        );
-        const noLiq = noBook.asks.reduce(
-          (sum, o) => sum + decimalToBigInt(o.size, 6), 0n,
-        );
+        // Depth at fillable price: only count asks within order slippage range (100 bps)
+        const yesMaxPrice = Number(sortedYesAsks[0]?.price ?? 0) * 1.01;
+        const noMaxPrice = Number(sortedNoAsks[0]?.price ?? 0) * 1.01;
+        const yesLiq = sortedYesAsks
+          .filter(o => Number(o.price) <= yesMaxPrice)
+          .reduce((sum, o) => sum + decimalToBigInt(o.size, 6), 0n);
+        const noLiq = sortedNoAsks
+          .filter(o => Number(o.price) <= noMaxPrice)
+          .reduce((sum, o) => sum + decimalToBigInt(o.size, 6), 0n);
 
-        quotes.push({
+        // Skip quotes with invalid prices or insufficient liquidity
+        if (yesPrice <= 0n || noPrice <= 0n) {
+          log.warn("Skipping zero-price quote", { marketId, protocol: this.name });
+          return null;
+        }
+        if (yesPrice >= ONE || noPrice >= ONE) {
+          log.warn("Skipping out-of-range price", { marketId, protocol: this.name, yesPrice: yesPrice.toString(), noPrice: noPrice.toString() });
+          return null;
+        }
+        if (yesLiq < MIN_LIQUIDITY || noLiq < MIN_LIQUIDITY) {
+          log.warn("Skipping low-liquidity quote", { marketId, protocol: this.name, yesLiq: yesLiq.toString(), noLiq: noLiq.toString() });
+          return null;
+        }
+
+        return {
           marketId,
           protocol: this.name,
           yesPrice,
@@ -98,13 +120,14 @@ export class OpinionProvider extends MarketProvider {
           noLiquidity: noLiq,
           feeBps: 200,
           quotedAt: Date.now(),
-        });
+        } satisfies MarketQuote;
       } catch (err) {
         log.warn("Failed to fetch Opinion quote", { marketId, error: String(err) });
+        return null;
       }
-    }
+    }, 5);
 
-    return quotes;
+    return results.filter((q): q is MarketQuote => q !== null);
   }
 
   private async fetchOrderBook(tokenId: string): Promise<OpinionOrderBook> {
@@ -112,7 +135,7 @@ export class OpinionProvider extends MarketProvider {
       const url = `${this.apiBase}/token/orderbook?token_id=${tokenId}`;
       const res = await fetch(url, {
         headers: { apikey: this.apiKey },
-        signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.timeout(5_000),
       });
       if (!res.ok) throw new Error(`Opinion API error: ${res.status}`);
       const data = await res.json() as any;
@@ -120,6 +143,6 @@ export class OpinionProvider extends MarketProvider {
       const book = data.result ?? data;
       if (!book.asks || !book.bids) throw new Error("Invalid orderbook response");
       return book as OpinionOrderBook;
-    }, { label: `Opinion orderbook ${tokenId}` });
+    }, { label: `Opinion orderbook ${tokenId}`, retries: 1, delayMs: 500 });
   }
 }

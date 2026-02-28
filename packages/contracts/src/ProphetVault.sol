@@ -8,7 +8,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {IProtocolAdapter} from "./interfaces/IProtocolAdapter.sol";
 
-contract ProphitVault is Ownable2Step, Pausable, ReentrancyGuard {
+contract ProphetVault is Ownable2Step, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // --- Types ---

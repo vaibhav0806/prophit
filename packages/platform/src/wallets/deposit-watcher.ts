@@ -1,6 +1,6 @@
 import { createPublicClient, http, defineChain, formatUnits } from "viem";
-import type { Database } from "@prophit/shared/db";
-import { tradingWallets, deposits } from "@prophit/shared/db";
+import type { Database } from "@prophet/shared/db";
+import { tradingWallets, deposits } from "@prophet/shared/db";
 
 const BSC_USDT = "0x55d398326f99059fF775485246999027B3197955" as `0x${string}`;
 
@@ -34,7 +34,7 @@ export class DepositWatcher {
 
     const chain = defineChain({
       id: params.chainId,
-      name: params.chainId === 56 ? "BNB Smart Chain" : "prophit-chain",
+      name: params.chainId === 56 ? "BNB Smart Chain" : "prophet-chain",
       nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
       rpcUrls: { default: { http: [params.rpcUrl] } },
     });

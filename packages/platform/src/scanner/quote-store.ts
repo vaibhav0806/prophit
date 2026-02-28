@@ -1,4 +1,4 @@
-import type { MarketQuote, MarketMeta } from "@prophit/agent/src/types.js";
+import type { MarketQuote, MarketMeta } from "@prophet/agent/src/types.js";
 
 export interface MarketMetaResolver {
   getMarketMeta(marketId: `0x${string}`): MarketMeta | undefined;

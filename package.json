@@ -1,5 +1,5 @@
 {
-  "name": "prophit",
+  "name": "prophet",
   "private": true,
   "scripts": {
     "build:contracts": "cd packages/contracts && forge build",

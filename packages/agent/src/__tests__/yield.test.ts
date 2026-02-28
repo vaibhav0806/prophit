@@ -46,6 +46,7 @@ function makeOpportunity(overrides: Partial<ArbitOpportunity> = {}): ArbitOpport
     estProfit: 30n * USDT,
     liquidityA: ONE,
     liquidityB: ONE,
+    quotedAt: Date.now(),
     ...overrides,
   };
 }

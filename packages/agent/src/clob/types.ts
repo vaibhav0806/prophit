@@ -14,7 +14,7 @@ export interface ClobOrder {
   nonce: bigint;
   feeRateBps: bigint;
   side: number; // 0 = BUY, 1 = SELL
-  signatureType: number; // 0 = EOA, 1 = POLY_PROXY, 2 = POLY_GNOSIS_SAFE
+  signatureType: number; // 0 = EOA, 1 = PROB_GNOSIS_SAFE (Probable) / POLY_PROXY (Polymarket), 2 = POLY_GNOSIS_SAFE (Polymarket only)
 }
 
 export interface SignedClobOrder {

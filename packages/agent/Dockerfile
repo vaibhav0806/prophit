@@ -12,7 +12,7 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/agent/package.json packages/agent/package.json
 
 # Install dependencies (agent only)
-RUN pnpm install --frozen-lockfile --filter @prophit/agent...
+RUN pnpm install --frozen-lockfile --filter @prophet/agent...
 
 # Stage 2: Runtime
 FROM node:20-alpine AS runner

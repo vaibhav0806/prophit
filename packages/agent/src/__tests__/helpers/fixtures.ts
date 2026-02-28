@@ -49,6 +49,7 @@ export function makeArbitOpportunity(
     estProfit: 30_000_000n,
     liquidityA: 500_000_000n,
     liquidityB: 500_000_000n,
+    quotedAt: Date.now(),
     ...overrides,
   };
 }

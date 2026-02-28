@@ -1,12 +1,22 @@
-import { PredictProvider } from "@prophit/agent/src/providers/predict-provider.js";
-import { ProbableProvider } from "@prophit/agent/src/providers/probable-provider.js";
-import { OpinionProvider } from "@prophit/agent/src/providers/opinion-provider.js";
-import type { MarketProvider } from "@prophit/agent/src/providers/base.js";
-import type { MarketQuote } from "@prophit/agent/src/types.js";
-import { runDiscovery } from "@prophit/agent/src/discovery/pipeline.js";
+import { PredictProvider } from "@prophet/agent/src/providers/predict-provider.js";
+import { ProbableProvider } from "@prophet/agent/src/providers/probable-provider.js";
+import { OpinionProvider } from "@prophet/agent/src/providers/opinion-provider.js";
+import type { MarketProvider } from "@prophet/agent/src/providers/base.js";
+import type { MarketQuote } from "@prophet/agent/src/types.js";
+import { runDiscovery } from "@prophet/agent/src/discovery/pipeline.js";
 import { QuoteStore } from "./quote-store.js";
 
 const DUMMY_ADAPTER = "0x0000000000000000000000000000000000000001" as `0x${string}`;
+const PROVIDER_TIMEOUT_MS = 10_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
+    ),
+  ]);
+}
 
 export interface ScannerConfig {
   rpcUrl: string;
@@ -148,7 +158,9 @@ export class ScannerService {
     if (!this.running) return;
 
     try {
-      const results = await Promise.allSettled(this.providers.map((p) => p.fetchQuotes()));
+      const results = await Promise.allSettled(
+        this.providers.map((p) => withTimeout(p.fetchQuotes(), PROVIDER_TIMEOUT_MS, p.name)),
+      );
       const allQuotes = results
         .filter((r): r is PromiseFulfilledResult<MarketQuote[]> => r.status === "fulfilled")
         .flatMap((r) => r.value);

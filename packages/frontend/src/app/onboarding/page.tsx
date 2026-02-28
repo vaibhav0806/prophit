@@ -16,8 +16,8 @@ const RESOLUTION_OPTIONS = [
   { label: 'Any', value: null },
 ] as const
 
-const MIN_USDT = 5
-const MIN_BNB = 0.005
+const MIN_USDT = 1
+const MIN_BNB = 0.001
 
 function StepIndicator({ current, steps }: { current: number; steps: readonly string[] }) {
   return (
@@ -113,7 +113,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
             className="inline-block font-bold uppercase text-white"
             style={{ textShadow: '0 0 20px rgba(0, 212, 255, 0.3)' }}
           >
-            PROPHIT
+            PROPHET
           </span>
         </h1>
       </div>

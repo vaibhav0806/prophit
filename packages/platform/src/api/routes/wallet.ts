@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import type { Database } from "@prophit/shared/db";
-import { tradingWallets, withdrawals, deposits } from "@prophit/shared/db";
+import type { Database } from "@prophet/shared/db";
+import { users, tradingWallets, withdrawals, deposits } from "@prophet/shared/db";
 import { eq, desc, and, gte, sql } from "drizzle-orm";
 import { formatUnits } from "viem";
 import type { DepositWatcher } from "../../wallets/deposit-watcher.js";
@@ -25,6 +25,13 @@ export function createWalletRoutes(params: {
   // GET /api/wallet - Get user's deposit address and balances
   app.get("/", async (c) => {
     const userId = c.get("userId") as string;
+    const walletAddress = c.get("walletAddress") as string;
+
+    // Ensure user row exists (fresh DB or first visit)
+    const [existingUser] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!existingUser) {
+      await db.insert(users).values({ id: userId, walletAddress }).onConflictDoNothing();
+    }
 
     // Get user's embedded wallet from Privy
     const { address, walletId } = await getOrCreateWallet(userId);

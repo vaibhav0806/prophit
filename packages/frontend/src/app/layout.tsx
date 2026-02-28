@@ -17,7 +17,7 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Prophit — Prediction Market Arbitrage",
+  title: "Prophet — Prediction Market Arbitrage",
   description: "Automated prediction market arbitrage trading platform",
 };
 

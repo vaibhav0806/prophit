@@ -3,12 +3,12 @@ pragma solidity ^0.8.24;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ProphitVault} from "../src/ProphitVault.sol";
+import {ProphetVault} from "../src/ProphetVault.sol";
 import {MockUSDT} from "../src/mocks/MockUSDT.sol";
 import {MockAdapter} from "../src/mocks/MockAdapter.sol";
 
-contract ProphitVaultTest is Test {
-    ProphitVault vault;
+contract ProphetVaultTest is Test {
+    ProphetVault vault;
     MockUSDT usdt;
     MockAdapter adapterA;
     MockAdapter adapterB;
@@ -20,7 +20,7 @@ contract ProphitVaultTest is Test {
     function setUp() public {
         vm.warp(1000); // move past default cooldown
         usdt = new MockUSDT();
-        vault = new ProphitVault(address(usdt), agent);
+        vault = new ProphetVault(address(usdt), agent);
 
         adapterA = new MockAdapter(address(usdt));
         adapterB = new MockAdapter(address(usdt));
@@ -88,7 +88,7 @@ contract ProphitVaultTest is Test {
         assertEq(posId, 0);
         assertEq(vault.positionCount(), 1);
 
-        ProphitVault.Position memory pos = vault.getPosition(0);
+        ProphetVault.Position memory pos = vault.getPosition(0);
         assertEq(pos.costA, 100e6);
         assertEq(pos.costB, 100e6);
         assertFalse(pos.closed);
@@ -186,7 +186,7 @@ contract ProphitVaultTest is Test {
         // NO shares on B don't win, so adapter B redeems 0
         assertTrue(payout > 0);
 
-        ProphitVault.Position memory pos = vault.getPosition(0);
+        ProphetVault.Position memory pos = vault.getPosition(0);
         assertTrue(pos.closed);
     }
 

@@ -5,10 +5,10 @@
 import "dotenv/config";
 import { createWalletClient, http, defineChain, getAddress, hashTypedData, formatUnits } from "viem";
 import { createPrivyAccount } from "../wallets/privy-account.js";
-import { buildOrder, signOrder } from "@prophit/agent/src/clob/signing.js";
-import { ORDER_EIP712_TYPES } from "@prophit/agent/src/clob/types.js";
-import { createDb } from "@prophit/shared/db";
-import { tradingWallets } from "@prophit/shared/db";
+import { buildOrder, signOrder } from "@prophet/agent/src/clob/signing.js";
+import { ORDER_EIP712_TYPES } from "@prophet/agent/src/clob/types.js";
+import { createDb } from "@prophet/shared/db";
+import { tradingWallets } from "@prophet/shared/db";
 import { eq } from "drizzle-orm";
 
 const EOA = "0xdad013d95acb067b2431fde18cbac2bc92ef6b6c" as `0x${string}`;

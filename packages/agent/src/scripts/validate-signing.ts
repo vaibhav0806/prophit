@@ -74,7 +74,7 @@ const account = privateKeyToAccount(PRIVATE_KEY as `0x${string}`);
 
 const chain = defineChain({
   id: CHAIN_ID,
-  name: CHAIN_ID === 56 ? "BNB Smart Chain" : "prophit-chain",
+  name: CHAIN_ID === 56 ? "BNB Smart Chain" : "prophet-chain",
   nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
   rpcUrls: { default: { http: [RPC_URL] } },
 });

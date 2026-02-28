@@ -1,5 +1,5 @@
 {
-  "name": "@prophit/agent",
+  "name": "@prophet/agent",
   "private": true,
   "type": "module",
   "scripts": {

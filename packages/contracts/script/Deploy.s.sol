@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Script, console2} from "forge-std/Script.sol";
 import {MockUSDT} from "../src/mocks/MockUSDT.sol";
 import {MockAdapter} from "../src/mocks/MockAdapter.sol";
-import {ProphitVault} from "../src/ProphitVault.sol";
+import {ProphetVault} from "../src/ProphetVault.sol";
 
 contract Deploy is Script {
     function run() external {
@@ -38,9 +38,9 @@ contract Deploy is Script {
 
         console2.log("MarketId (BTC-100K-2025):", vm.toString(marketId));
 
-        // 4. Deploy ProphitVault
-        ProphitVault vault = new ProphitVault(address(usdt), agent);
-        console2.log("ProphitVault:", address(vault));
+        // 4. Deploy ProphetVault
+        ProphetVault vault = new ProphetVault(address(usdt), agent);
+        console2.log("ProphetVault:", address(vault));
 
         // Approve adapters on the vault
         vault.approveAdapter(address(adapterA));

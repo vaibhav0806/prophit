@@ -276,6 +276,16 @@ export class Executor {
       this.marketCooldowns.delete(marketKey);
     }
 
+    // Reject stale quotes — scanner cycle takes ~20-30s, so allow 2x headroom
+    const MAX_QUOTE_AGE_MS = 15_000;
+    const quoteAge = Date.now() - opportunity.quotedAt;
+    if (quoteAge > MAX_QUOTE_AGE_MS) {
+      log.warn("CLOB: rejecting stale opportunity", {
+        marketId: opportunity.marketId, quoteAgeMs: quoteAge, maxAgeMs: MAX_QUOTE_AGE_MS,
+      });
+      return;
+    }
+
     const clientA = this.getClobClient(opportunity.protocolA);
     const clientB = this.getClobClient(opportunity.protocolB);
 
@@ -314,8 +324,11 @@ export class Executor {
     });
 
     // Calculate size: cap to liquidity (90%)
+    // When Safe proxy is configured, each leg uses a separate wallet (EOA for Predict, Safe for Probable)
+    // so we don't need to halve the position size. Without Safe, both legs come from the EOA.
     const SCALE = 1_000_000n;
-    let sizeUsdt = Number(maxPositionSize / 2n) / 1_000_000; // Convert 6-dec to human
+    const hasSeparateWallets = !!this.clobClients.probableProxyAddress;
+    let sizeUsdt = Number(hasSeparateWallets ? maxPositionSize : maxPositionSize / 2n) / 1_000_000;
 
     const liqA = Number(opportunity.liquidityA) / 1_000_000;
     const liqB = Number(opportunity.liquidityB) / 1_000_000;
@@ -324,7 +337,7 @@ export class Executor {
     if (liqB > 0 && liqB * 0.9 < sizeUsdt) sizeUsdt = liqB * 0.9;
 
     // Enforce minimum trade size
-    const minSizeUsdt = this.minTradeSize ? Number(this.minTradeSize) / 1_000_000 : 1;
+    const minSizeUsdt = this.minTradeSize ? Number(this.minTradeSize) / 1_000_000 : 2;
     if (sizeUsdt < minSizeUsdt) {
       log.info("CLOB: position size below minimum trade size", { sizeUsdt, minSizeUsdt });
       return;

@@ -14,7 +14,7 @@ COPY packages/agent/package.json packages/agent/package.json
 COPY packages/shared/package.json packages/shared/package.json
 
 # Install dependencies (platform + workspace deps)
-RUN pnpm install --frozen-lockfile --filter @prophit/platform...
+RUN pnpm install --frozen-lockfile --filter @prophet/platform...
 
 # Stage 2: Runtime
 FROM node:20-alpine AS runner

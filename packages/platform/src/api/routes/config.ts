@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import type { Database } from "@prophit/shared/db";
-import { users, userConfigs } from "@prophit/shared/db";
+import type { Database } from "@prophet/shared/db";
+import { users, userConfigs } from "@prophet/shared/db";
 import { eq } from "drizzle-orm";
 import type { AuthEnv } from "../server.js";
 

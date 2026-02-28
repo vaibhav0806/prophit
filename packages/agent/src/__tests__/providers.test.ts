@@ -64,7 +64,7 @@ describe("OpinionProvider", () => {
     expect(quotes[0].feeBps).toBe(200);
   });
 
-  it("returns 0n price when asks are empty", async () => {
+  it("skips quotes with zero price (empty asks)", async () => {
     fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
       new Response(JSON.stringify({ asks: [], bids: [] })),
     );
@@ -72,9 +72,30 @@ describe("OpinionProvider", () => {
     const provider = createProvider();
     const quotes = await provider.fetchQuotes();
 
-    expect(quotes).toHaveLength(1);
-    expect(quotes[0].yesPrice).toBe(0n);
-    expect(quotes[0].noPrice).toBe(0n);
+    expect(quotes).toHaveLength(0);
+  });
+
+  it("skips quotes with liquidity below MIN_LIQUIDITY", async () => {
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      if (url.includes("yes-tok-1")) {
+        return new Response(JSON.stringify({
+          asks: [{ price: "0.55", size: "0.5" }], // 0.5 USDT < 1 USDT minimum
+          bids: [],
+        }));
+      }
+      if (url.includes("no-tok-1")) {
+        return new Response(JSON.stringify({
+          asks: [{ price: "0.40", size: "0.5" }],
+          bids: [],
+        }));
+      }
+      return new Response("", { status: 404 });
+    });
+
+    const provider = createProvider();
+    const quotes = await provider.fetchQuotes();
+    expect(quotes).toHaveLength(0);
   });
 
   it("skips markets with no token mapping", async () => {

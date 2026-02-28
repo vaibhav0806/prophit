@@ -53,6 +53,7 @@ function createOpportunity(overrides?: Partial<ArbitOpportunity>): ArbitOpportun
     estProfit: 100_000n,
     liquidityA: 500_000_000n, // 500 USDT in 6-dec
     liquidityB: 500_000_000n,
+    quotedAt: Date.now(),
     ...overrides,
   };
 }
@@ -940,10 +941,10 @@ describe("integration: fixed execution flow", () => {
   });
 
   it("caps trade size when Safe balance is insufficient including the fee buffer", async () => {
-    // maxPositionSize = 6_000_000n → sizeUsdt = 6/2 = 3 USDT
-    // Fee-inclusive: 3 * 1.02 = 3.06 USDT, but Safe only has 2.0 USDT
-    // requiredWei = BigInt(Math.round(3 * 1.02 * 1e6)) * 10n**12n = 3.06e18
-    // Safe balance = 2.0e18 < 3.06e18 → cap to floor(2.0 / 1.02 * 1e8) / 1e8 ≈ 1.96078431
+    // maxPositionSize = 6_000_000n, hasSeparateWallets=true → sizeUsdt = 6
+    // Fee-inclusive: 6 * 1.02 = 6.12 USDT, but Safe only has 2.0 USDT
+    // requiredWei = BigInt(Math.round(6 * 1.02 * 1e6)) * 10n**12n = 6.12e18
+    // Safe balance = 2.0e18 < 6.12e18 → cap to floor(2.0 / 1.02 * 1e8) / 1e8 ≈ 1.96078431
     const config = { ...mockConfig, dryRun: false, maxPositionSize: 6_000_000n };
     const executor = new Executor(
       undefined,
@@ -952,6 +953,7 @@ describe("integration: fixed execution flow", () => {
       { probable: clientA, predict: clientB, probableProxyAddress: proxyAddr },
       createMetaResolvers(),
       { account: walletAccount } as any,
+      1_000_000n, // minTradeSize = 1 USDT (below the capped ~1.96)
     );
 
     // Balance calls for pre-checks:
@@ -1180,7 +1182,7 @@ describe("integration: fixed execution flow", () => {
     // Reproduce incident #2: BUY at $0.32 for $4 USDT → 12.5 shares.
     // Unwind SELL at 5% discount ($0.304) should sell 12.5 shares for $3.80,
     // NOT try to sell $4/$0.304 = 13.16 shares (which exceeds holdings).
-    // maxPositionSize = 8M → sizeUsdt = 8M/2/1e6 = 4 USDT per leg
+    // maxPositionSize = 4M, hasSeparateWallets=true → sizeUsdt = 4 USDT
     const config = { ...mockConfig, dryRun: false };
     const executor = new Executor(
       undefined,
@@ -1216,7 +1218,7 @@ describe("integration: fixed execution flow", () => {
       .mockResolvedValueOnce({ success: false, error: "rejected-2" })
       .mockResolvedValueOnce({ success: false, error: "rejected-3" });
 
-    const promise = executor.executeBest(opp, 8_000_000n); // 8M → 4 USDT per leg
+    const promise = executor.executeBest(opp, 4_000_000n); // 4M, hasSeparateWallets → 4 USDT
     await vi.advanceTimersByTimeAsync(15_000);
     await promise;
 
@@ -1514,5 +1516,28 @@ describe("executeClob with Opinion + Predict", () => {
     expect(result).toBeDefined();
     expect(opinionClient.placeOrder).toHaveBeenCalled();
     expect(predictClient.placeOrder).toHaveBeenCalled();
+  });
+});
+
+describe("executeClob staleness", () => {
+  it("rejects stale opportunities", async () => {
+    const clientA = createMockClobClient("probable");
+    const clientB = createMockClobClient("predict");
+    const dryRunConfig = { ...mockConfig, dryRun: true };
+    const dryExecutor = new Executor(
+      undefined,
+      dryRunConfig,
+      mockPublicClient,
+      { probable: clientA, predict: clientB },
+      createMetaResolvers(),
+      undefined,
+    );
+
+    const opp = createOpportunity({ quotedAt: Date.now() - 20_000 }); // 20s old, past 15s limit
+    const result = await dryExecutor.executeBest(opp, 100_000_000n);
+
+    expect(result).toBeUndefined();
+    expect(clientA.placeOrder).not.toHaveBeenCalled();
+    expect(clientB.placeOrder).not.toHaveBeenCalled();
   });
 });

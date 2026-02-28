@@ -8,7 +8,7 @@ import { createMarketRoutes } from "./routes/markets.js";
 import { createTradeRoutes } from "./routes/trades.js";
 import { createConfigRoutes } from "./routes/config.js";
 import { rateLimit } from "./middleware/rate-limit.js";
-import type { Database } from "@prophit/shared/db";
+import type { Database } from "@prophet/shared/db";
 import type { AgentManager } from "../agents/agent-manager.js";
 import type { DepositWatcher } from "../wallets/deposit-watcher.js";
 import type { WithdrawalProcessor } from "../wallets/withdrawal.js";
@@ -41,7 +41,7 @@ export function createPlatformServer(deps: ServerDeps): Hono {
   // CORS — restrict in production
   const isProd = process.env.NODE_ENV === "production";
   const corsOrigin = isProd
-    ? (process.env.CORS_ORIGIN ?? "https://prophit.fun")
+    ? (process.env.CORS_ORIGIN ?? "https://prophet.fun")
     : "*";
   app.use("*", cors({ origin: corsOrigin }));
 

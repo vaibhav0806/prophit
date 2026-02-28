@@ -1,7 +1,7 @@
-import type { Database } from "@prophit/shared/db";
-import { markets } from "@prophit/shared/db";
+import type { Database } from "@prophet/shared/db";
+import { markets } from "@prophet/shared/db";
 import { eq } from "drizzle-orm";
-import type { DiscoveryResult } from "@prophit/agent/src/discovery/pipeline.js";
+import type { DiscoveryResult } from "@prophet/agent/src/discovery/pipeline.js";
 
 /**
  * Sync discovery results into the markets table, populating resolution dates.

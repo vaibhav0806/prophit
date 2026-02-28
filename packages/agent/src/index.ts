@@ -101,7 +101,7 @@ const account = privateKeyToAccount(config.privateKey);
 
 const chain = defineChain({
   id: config.chainId,
-  name: config.chainId === 56 ? "BNB Smart Chain" : "prophit-chain",
+  name: config.chainId === 56 ? "BNB Smart Chain" : "prophet-chain",
   nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
   rpcUrls: { default: { http: [config.rpcUrl] } },
 });

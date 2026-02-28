@@ -6,8 +6,8 @@ import "dotenv/config";
 import { createPublicClient, createWalletClient, http, defineChain } from "viem";
 import { createPrivyAccount } from "../wallets/privy-account.js";
 import { getOrCreateProbableProxy } from "../wallets/safe-deployer.js";
-import { createDb } from "@prophit/shared/db";
-import { tradingWallets } from "@prophit/shared/db";
+import { createDb } from "@prophet/shared/db";
+import { tradingWallets } from "@prophet/shared/db";
 import { eq } from "drizzle-orm";
 
 const rpcUrl = process.env.RPC_URL!;

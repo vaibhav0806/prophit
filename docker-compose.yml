@@ -4,13 +4,13 @@ services:
     ports:
       - "5434:5432"
     environment:
-      POSTGRES_USER: prophit
-      POSTGRES_PASSWORD: prophit
-      POSTGRES_DB: prophit
+      POSTGRES_USER: prophet
+      POSTGRES_PASSWORD: prophet
+      POSTGRES_DB: prophet
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U prophit"]
+      test: ["CMD-SHELL", "pg_isready -U prophet"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -54,7 +54,7 @@ services:
     environment:
       RPC_URL: http://anvil:8545
       PORT: "3001"
-      DATABASE_URL: postgresql://prophit:prophit@postgres:5432/prophit
+      DATABASE_URL: postgresql://prophet:prophet@postgres:5432/prophet
 
   platform:
     build:
@@ -69,7 +69,7 @@ services:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: postgresql://prophit:prophit@postgres:5432/prophit
+      DATABASE_URL: postgresql://prophet:prophet@postgres:5432/prophet
       PORT: "4000"
 
   frontend:

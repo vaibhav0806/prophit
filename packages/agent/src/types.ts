@@ -42,6 +42,7 @@ export interface ArbitOpportunity {
   liquidityA: bigint; // available liquidity for leg A (6 decimals USDT)
   liquidityB: bigint; // available liquidity for leg B (6 decimals USDT)
   polarityFlip?: boolean; // YES on A = NO on B (prices inverted)
+  quotedAt: number; // min(quotedAtA, quotedAtB) — oldest underlying quote
 }
 
 export interface Position {

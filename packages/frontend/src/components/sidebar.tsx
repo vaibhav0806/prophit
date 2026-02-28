@@ -112,7 +112,7 @@ export function Sidebar() {
                 textShadow: '0 0 20px rgba(0, 212, 255, 0.3)',
               }}
             >
-              PROPHIT
+              PROPHET
             </span>
           </Link>
           <p className="text-[9px] text-[#3D4350] mt-1.5 uppercase tracking-[0.35em] font-medium">Arbitrage Engine</p>

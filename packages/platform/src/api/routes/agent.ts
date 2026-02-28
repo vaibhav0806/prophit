@@ -1,14 +1,14 @@
 import { Hono } from "hono";
 import { createPublicClient, createWalletClient, http, defineChain } from "viem";
-import type { Database } from "@prophit/shared/db";
-import { userConfigs, trades, tradingWallets } from "@prophit/shared/db";
+import type { Database } from "@prophet/shared/db";
+import { userConfigs, trades, tradingWallets } from "@prophet/shared/db";
 import { eq, and, gt } from "drizzle-orm";
 import type { AgentManager } from "../../agents/agent-manager.js";
 import { getOrCreateWallet } from "../../wallets/privy-wallet.js";
 import { createPrivyAccount } from "../../wallets/privy-account.js";
 import { getOrCreateProbableProxy } from "../../wallets/safe-deployer.js";
 import type { AuthEnv } from "../server.js";
-import type { ClobPosition } from "@prophit/agent/src/types.js";
+import type { ClobPosition } from "@prophet/agent/src/types.js";
 
 export function createAgentRoutes(params: {
   db: Database;
@@ -56,7 +56,7 @@ export function createAgentRoutes(params: {
         console.log(`[Agent] Deploying Gnosis Safe proxy for user ${userId}...`);
         const chain = defineChain({
           id: chainId,
-          name: chainId === 56 ? "BNB Smart Chain" : "prophit-chain",
+          name: chainId === 56 ? "BNB Smart Chain" : "prophet-chain",
           nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
           rpcUrls: { default: { http: [rpcUrl] } },
         });

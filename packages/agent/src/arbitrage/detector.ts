@@ -143,6 +143,7 @@ export function detectArbitrage(
             estProfit,
             liquidityA: a.yesLiquidity,
             liquidityB: b.noLiquidity,
+            quotedAt: Math.min(a.quotedAt, b.quotedAt),
           });
         }
 
@@ -178,6 +179,7 @@ export function detectArbitrage(
             estProfit,
             liquidityA: b.yesLiquidity,
             liquidityB: a.noLiquidity,
+            quotedAt: Math.min(a.quotedAt, b.quotedAt),
           });
         }
       }

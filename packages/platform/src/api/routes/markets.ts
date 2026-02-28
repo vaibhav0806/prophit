@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { QuoteStore } from "../../scanner/quote-store.js";
-import { detectArbitrage } from "@prophit/agent/src/arbitrage/detector.js";
+import { detectArbitrage } from "@prophet/agent/src/arbitrage/detector.js";
 
 export function createMarketRoutes(quoteStore: QuoteStore): Hono {
   const app = new Hono();

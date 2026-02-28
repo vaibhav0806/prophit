@@ -44,10 +44,13 @@ describe("detectArbitrage", () => {
   it("detects arbitrage when yes_A + no_B < 1", () => {
     // A: yes=0.40, no=0.60  B: yes=0.60, no=0.30
     // yes_A + no_B = 0.40 + 0.30 = 0.70 < 1 => arb
+    const now = Date.now();
     const quotes = [
       quote("A", (ONE * 40n) / 100n, (ONE * 60n) / 100n),
       quote("B", (ONE * 60n) / 100n, (ONE * 30n) / 100n),
     ];
+    // Give B an older quotedAt to verify min() propagation
+    quotes[1].quotedAt = now - 5000;
 
     const result = detectArbitrage(quotes);
     expect(result.length).toBeGreaterThanOrEqual(1);
@@ -58,15 +61,18 @@ describe("detectArbitrage", () => {
     expect(arb!.protocolB).toBe("B");
     expect(arb!.spreadBps).toBeGreaterThan(0);
     expect(arb!.totalCost).toBeLessThan(ONE);
+    expect(arb!.quotedAt).toBe(now - 5000);
   });
 
   it("detects arbitrage when no_A + yes_B < 1", () => {
     // A: yes=0.70, no=0.20  B: yes=0.30, no=0.80
     // no_A + yes_B = 0.20 + 0.30 = 0.50 < 1 => arb
+    const now = Date.now();
     const quotes = [
       quote("A", (ONE * 70n) / 100n, (ONE * 20n) / 100n),
       quote("B", (ONE * 30n) / 100n, (ONE * 80n) / 100n),
     ];
+    quotes[0].quotedAt = now - 3000;
 
     const result = detectArbitrage(quotes);
     expect(result.length).toBeGreaterThanOrEqual(1);
@@ -74,6 +80,7 @@ describe("detectArbitrage", () => {
     const arb = result.find((o) => o.buyYesOnA === false);
     expect(arb).toBeDefined();
     expect(arb!.spreadBps).toBeGreaterThan(0);
+    expect(arb!.quotedAt).toBe(now - 3000);
   });
 
   it("returns no opportunity when prices sum above 1", () => {

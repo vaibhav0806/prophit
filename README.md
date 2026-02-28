@@ -67,7 +67,7 @@
 
 | Channel | Link |
 |---------|------|
-| Web Dashboard | `localhost:3000` (self-hosted) |
+| Web Dashboard | `prophet.up.railway.app/` (self-hosted) |
 | Telegram Bot | [@pr0phet_bot](https://t.me/pr0phet_bot) |
 | CLI | `pnpm build:cli && cd packages/cli && pnpm start` |
 | MCP (Claude) | See [MCP Server](#mcp-server) setup below |

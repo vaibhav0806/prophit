@@ -21,6 +21,8 @@ export interface DiscoveredMarket {
   opinionMarketType?: number;
   /** Probable/Predict slug (shared, sourced from Probable side) */
   slug?: string;
+  /** Market image URL (from platform API) */
+  image?: string;
 }
 
 export interface MarketMatch {
@@ -59,6 +61,8 @@ export interface DiscoveryResult {
   titleMap: Record<string, string>;
   /** Maps shared market key → per-platform URLs */
   linkMap: Record<string, { predict?: string; probable?: string; opinion?: string }>;
+  /** Maps shared market key → market image URL (best available) */
+  imageMap: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -72,6 +76,8 @@ interface ProbableEvent {
   active: boolean;
   tags: Array<{ id: number; label: string; slug: string }>;
   markets: ProbableMarketRaw[];
+  icon?: string;
+  image?: string;
 }
 
 interface ProbableMarketRaw {
@@ -105,6 +111,7 @@ interface PredictMarketRaw {
   categorySlug: string;
   endDate?: string;
   closeDate?: string;
+  imageUrl?: string;
 }
 
 interface PredictMarketsListResponse {
@@ -257,6 +264,7 @@ async function fetchProbableMarkets(
         hasLiquidity: true, // Will be refined below if we add orderbook checks
         resolvesAt,
         slug: event.slug,
+        image: event.icon || event.image || undefined,
       });
     }
   }
@@ -379,6 +387,7 @@ async function fetchPredictMarkets(
       category: m.categorySlug,
       hasLiquidity: true, // checked at scan time, not discovery time
       resolvesAt,
+      image: m.imageUrl || undefined,
     });
   }
 
@@ -402,6 +411,7 @@ interface OpinionMarketRaw {
   yesLabel?: string;
   noLabel?: string;
   childMarkets?: unknown[] | null;
+  thumbnailUrl?: string;
 }
 
 interface OpinionMarketsResponse {
@@ -486,6 +496,7 @@ async function fetchOpinionMarkets(
       resolvesAt,
       topicId: String(m.marketId),
       opinionMarketType: m.marketType,
+      image: m.thumbnailUrl || undefined,
     });
   }
 
@@ -717,6 +728,7 @@ export async function runDiscovery(params: {
   const opinionMarketMap: DiscoveryResult["opinionMarketMap"] = {};
   const titleMap: DiscoveryResult["titleMap"] = {};
   const linkMap: DiscoveryResult["linkMap"] = {};
+  const imageMap: DiscoveryResult["imageMap"] = {};
 
   // Derive a shared key for a matched pair.
   // Predict-anchored matches use Predict's conditionId (backward compat).
@@ -793,6 +805,12 @@ export async function runDiscovery(params: {
       const predictSide = m.platformA.platform === "Predict" ? m.platformA : m.platformB.platform === "Predict" ? m.platformB : null;
       titleMap[sharedKey] = predictSide?.title || m.platformA.title || m.platformB.title;
     }
+    // Prefer Predict image, fall back to other platform
+    if (!imageMap[sharedKey]) {
+      const predictSide = m.platformA.platform === "Predict" ? m.platformA : m.platformB.platform === "Predict" ? m.platformB : null;
+      const img = predictSide?.image || m.platformA.image || m.platformB.image;
+      if (img) imageMap[sharedKey] = img;
+    }
 
     // Build platform links using slug (shared between Probable/Predict) and topicId (Opinion)
     if (!linkMap[sharedKey]) linkMap[sharedKey] = {};
@@ -826,5 +844,6 @@ export async function runDiscovery(params: {
     opinionMarketMap,
     titleMap,
     linkMap,
+    imageMap,
   };
 }

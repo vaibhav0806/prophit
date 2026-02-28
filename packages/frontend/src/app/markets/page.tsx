@@ -1,18 +1,44 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useMarkets } from '@/hooks/use-platform-api'
 import { formatUSD, truncateAddress } from '@/lib/format'
 import { ProtocolLogo, ProtocolRoute } from '@/components/protocol-logos'
+import { MarketThumb } from '@/components/market-thumb'
 
 // ---------------------------------------------------------------------------
-// Protocol config (used only for expanded detail panel styling)
+// Protocol config
 // ---------------------------------------------------------------------------
 
 const PROTOCOL: Record<string, { color: string; bg: string; border: string }> = {
   Predict:  { color: '#60A5FA', bg: 'rgba(59,130,246,0.08)',  border: 'rgba(59,130,246,0.22)' },
   Probable: { color: '#34D399', bg: 'rgba(16,185,129,0.08)',  border: 'rgba(16,185,129,0.22)' },
   Opinion:  { color: '#C084FC', bg: 'rgba(139,92,246,0.08)', border: 'rgba(139,92,246,0.22)' },
+}
+
+// ---------------------------------------------------------------------------
+// Filter types
+// ---------------------------------------------------------------------------
+
+type SortKey = 'spread' | 'profit' | 'liquidity'
+
+const SPREAD_RANGES = [
+  { label: '< 100', min: 0, max: 99 },
+  { label: '100–200', min: 100, max: 200 },
+  { label: '200–500', min: 200, max: 500 },
+  { label: '500+', min: 500, max: Infinity },
+] as const
+
+const LIQUIDITY_TIERS = [
+  { label: 'All', min: 0 },
+  { label: '> $100', min: 100 },
+  { label: '> $500', min: 500 },
+  { label: '> $1K', min: 1000 },
+] as const
+
+function pairKey(a: string, b: string): string {
+  return [a, b].sort().join('-')
 }
 
 function getProtocol(name: string) {
@@ -32,7 +58,6 @@ function toLiquidity(bigintStr: string): number {
 }
 
 function toProfit(bigintStr: string): number {
-  // estProfit is in 6-decimal USDT (REF_AMOUNT=100 USDT)
   return parseFloat(bigintStr) / 1e6
 }
 
@@ -62,7 +87,7 @@ function lastScanLabel(updatedAt: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Market card (expandable row)
+// Market card
 // ---------------------------------------------------------------------------
 
 type Opp = ReturnType<typeof useMarkets>['data'] extends { opportunities: (infer T)[] } | undefined ? T : never
@@ -77,7 +102,6 @@ function MarketCard({ opp, rank }: { opp: Opp; rank: number }) {
   const liqB = toLiquidity(opp.liquidityB)
   const feesBps = opp.grossSpreadBps - opp.spreadBps
 
-  // Which side each protocol is buying
   const sideA    = opp.buyYesOnA ? 'YES' : 'NO'
   const sideB    = opp.buyYesOnA ? 'NO'  : 'YES'
   const priceA   = opp.buyYesOnA ? yesPrice : noPrice
@@ -88,54 +112,57 @@ function MarketCard({ opp, rank }: { opp: Opp; rank: number }) {
 
   return (
     <div
-      className={`border rounded overflow-hidden transition-all duration-150 ${
+      className={`group border rounded-lg overflow-hidden transition-all duration-200 ${
         open
           ? 'border-[#262D3D] bg-[#111318]'
-          : 'border-[#1C2030] bg-[#0B0D11] hover:bg-[#111318]/50'
+          : 'border-[#1C2030] bg-[#0B0D11] hover:border-[#262D3D]/60 hover:bg-[#0E1015]'
       }`}
+      style={{
+        animationDelay: `${rank * 30}ms`,
+      }}
     >
       {/* Clickable header */}
       <button className="w-full text-left" onClick={() => setOpen(!open)}>
-        <div className="flex items-center gap-3 px-3 py-2.5">
+        <div className="flex items-center gap-3 px-3 py-3">
           {/* Rank */}
-          <span className="shrink-0 w-5 text-[11px] font-mono text-[#262D3D] text-right tabular-nums">
+          <span className="shrink-0 w-5 text-[11px] font-mono text-[#262D3D] text-right tabular-nums select-none">
             {rank}
           </span>
 
-          {/* Route logos */}
-          <ProtocolRoute from={opp.protocolA} to={opp.protocolB} size={18} />
+          {/* Market image */}
+          <MarketThumb src={opp.image} title={opp.title} size={40} />
 
-          {/* Title + side/price info */}
+          {/* Title + route */}
           <div className="flex-1 min-w-0">
             <p className="text-[13px] text-[#E0E2E9] font-medium leading-snug truncate pr-2">
               {opp.title ?? truncateAddress(opp.marketId, 8)}
             </p>
-            <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-[11px] font-mono text-[#3D4350]">
-                {sideA} {fmtPrice(priceA)}
-              </span>
-              <span className="text-[11px] text-[#1C2030]">&rarr;</span>
-              <span className="text-[11px] font-mono text-[#3D4350]">
-                {sideB} {fmtPrice(priceB)}
+            <div className="flex items-center gap-2 mt-1">
+              <ProtocolRoute from={opp.protocolA} to={opp.protocolB} size={16} />
+              <span className="text-[10px] font-mono text-[#3D4350]">
+                {sideA} {fmtPrice(priceA)} / {sideB} {fmtPrice(priceB)}
               </span>
             </div>
           </div>
 
           {/* Right: spread + profit */}
           <div className="shrink-0 text-right ml-2">
-            <div className="text-sm font-mono font-bold tabular-nums leading-tight" style={{ color }}>
-              {opp.spreadBps.toLocaleString()}
-              <span className="text-[11px] font-normal text-[#3D4350] ml-0.5">bps</span>
+            <div className="flex items-baseline justify-end gap-1">
+              <span className="text-[15px] font-mono font-bold tabular-nums leading-tight" style={{ color }}>
+                {opp.spreadBps.toLocaleString()}
+              </span>
+              <span className="text-[10px] font-mono text-[#3D4350]">bps</span>
             </div>
             <div className="text-[11px] font-mono text-[#3D4350] mt-0.5 tabular-nums">
-              ~{formatUSD(estProfit, 2)} / 100
+              ~{formatUSD(estProfit, 2)}
+              <span className="text-[#262D3D]"> / 100</span>
             </div>
           </div>
 
           {/* Chevron */}
           <div className="shrink-0 ml-0.5">
             <svg
-              className={`w-3 h-3 text-[#3D4350] transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+              className={`w-3.5 h-3.5 text-[#3D4350] transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
               fill="none" viewBox="0 0 24 24" stroke="currentColor"
             >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -144,11 +171,11 @@ function MarketCard({ opp, rank }: { opp: Opp; rank: number }) {
         </div>
 
         {/* Spread bar */}
-        <div className="px-3 pb-2">
-          <div className="h-px bg-[#181818] rounded-full overflow-hidden">
+        <div className="px-3 pb-2.5">
+          <div className="h-[2px] bg-[#151820] rounded-full overflow-hidden">
             <div
-              className="h-full rounded-full"
-              style={{ width: `${barWidth}%`, background: color, opacity: 0.7 }}
+              className="h-full rounded-full transition-all duration-500"
+              style={{ width: `${barWidth}%`, background: color, opacity: 0.6 }}
             />
           </div>
         </div>
@@ -159,8 +186,7 @@ function MarketCard({ opp, rank }: { opp: Opp; rank: number }) {
         <div className="border-t border-[#1C2030] px-3 py-3">
           {/* Price boxes */}
           <div className="grid grid-cols-2 gap-2 mb-3">
-            {/* Protocol A */}
-            <div className="rounded border p-3" style={{ background: '#0B0D11', borderColor: getProtocol(opp.protocolA).border }}>
+            <div className="rounded-lg border p-3" style={{ background: '#0B0D11', borderColor: getProtocol(opp.protocolA).border }}>
               <div className="flex items-center gap-2 mb-2">
                 <ProtocolLogo name={opp.protocolA} size={16} />
                 <span className="text-[11px] text-[#3D4350] uppercase tracking-widest font-medium">{opp.protocolA}</span>
@@ -174,8 +200,7 @@ function MarketCard({ opp, rank }: { opp: Opp; rank: number }) {
               </div>
             </div>
 
-            {/* Protocol B */}
-            <div className="rounded border p-3" style={{ background: '#0B0D11', borderColor: getProtocol(opp.protocolB).border }}>
+            <div className="rounded-lg border p-3" style={{ background: '#0B0D11', borderColor: getProtocol(opp.protocolB).border }}>
               <div className="flex items-center gap-2 mb-2">
                 <ProtocolLogo name={opp.protocolB} size={16} />
                 <span className="text-[11px] text-[#3D4350] uppercase tracking-widest font-medium">{opp.protocolB}</span>
@@ -262,17 +287,17 @@ function MarketCard({ opp, rank }: { opp: Opp; rank: number }) {
 
 function Skeleton() {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="border border-[#1C2030] rounded px-3 py-2.5">
+        <div key={i} className="border border-[#1C2030] rounded-lg px-3 py-3">
           <div className="flex items-center gap-3">
             <div className="skeleton w-5 h-3 shrink-0" />
-            <div className="skeleton w-9 h-4 rounded-full" />
-            <div className="flex-1 space-y-1.5">
-              <div className="skeleton h-3 w-3/4" />
-              <div className="skeleton h-2.5 w-1/3" />
+            <div className="skeleton w-10 h-10 rounded-lg shrink-0" />
+            <div className="flex-1 space-y-2">
+              <div className="skeleton h-3.5 w-3/4" />
+              <div className="skeleton h-3 w-1/3" />
             </div>
-            <div className="shrink-0 space-y-1">
+            <div className="shrink-0 space-y-1.5">
               <div className="skeleton h-4 w-16" />
               <div className="skeleton h-2.5 w-20" />
             </div>
@@ -288,23 +313,90 @@ function Skeleton() {
 // ---------------------------------------------------------------------------
 
 export default function MarketsPage() {
+  const searchParams = useSearchParams()
   const { data, isLoading, dataUpdatedAt } = useMarkets()
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(searchParams.get('q') ?? '')
+  const [pairFilter, setPairFilter] = useState<string | null>(null)
 
+  // Sync search if navigated with ?q=
+  useEffect(() => {
+    const q = searchParams.get('q')
+    if (q) setSearch(q)
+  }, [searchParams])
+  const [spreadFilter, setSpreadFilter] = useState<number | null>(null)
+  const [minLiquidity, setMinLiquidity] = useState(0)
+  const [sortBy, setSortBy] = useState<SortKey>('spread')
+
+  // All opps sorted by chosen key
   const sorted = useMemo(() => {
     if (!data?.opportunities) return []
-    return [...data.opportunities].sort((a, b) => b.spreadBps - a.spreadBps)
-  }, [data?.opportunities])
+    const opps = [...data.opportunities]
+    switch (sortBy) {
+      case 'profit':
+        return opps.sort((a, b) => toProfit(b.estProfit) - toProfit(a.estProfit))
+      case 'liquidity':
+        return opps.sort((a, b) =>
+          Math.min(toLiquidity(b.liquidityA), toLiquidity(b.liquidityB))
+          - Math.min(toLiquidity(a.liquidityA), toLiquidity(a.liquidityB)),
+        )
+      default:
+        return opps.sort((a, b) => b.spreadBps - a.spreadBps)
+    }
+  }, [data?.opportunities, sortBy])
 
+  // Unique protocol pairs present in data (for filter chips)
+  const availablePairs = useMemo(() => {
+    const seen = new Map<string, { a: string; b: string; count: number }>()
+    for (const o of sorted) {
+      const key = pairKey(o.protocolA, o.protocolB)
+      const existing = seen.get(key)
+      if (existing) {
+        existing.count++
+      } else {
+        // Keep alphabetical order for display consistency
+        const [first, second] = [o.protocolA, o.protocolB].sort()
+        seen.set(key, { a: first, b: second, count: 1 })
+      }
+    }
+    return Array.from(seen.entries()).sort((a, b) => b[1].count - a[1].count)
+  }, [sorted])
+
+  // Apply all filters
   const filtered = useMemo(() => {
-    if (!search.trim()) return sorted
-    const q = search.toLowerCase()
-    return sorted.filter(o =>
-      (o.title ?? '').toLowerCase().includes(q) ||
-      o.protocolA.toLowerCase().includes(q) ||
-      o.protocolB.toLowerCase().includes(q),
-    )
-  }, [sorted, search])
+    let result = sorted
+
+    // Text search
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      result = result.filter(o =>
+        (o.title ?? '').toLowerCase().includes(q) ||
+        o.protocolA.toLowerCase().includes(q) ||
+        o.protocolB.toLowerCase().includes(q),
+      )
+    }
+
+    // Protocol pair
+    if (pairFilter) {
+      result = result.filter(o => pairKey(o.protocolA, o.protocolB) === pairFilter)
+    }
+
+    // Spread range
+    if (spreadFilter !== null) {
+      const range = SPREAD_RANGES[spreadFilter]
+      result = result.filter(o => o.spreadBps >= range.min && o.spreadBps <= range.max)
+    }
+
+    // Min liquidity
+    if (minLiquidity > 0) {
+      result = result.filter(o =>
+        Math.min(toLiquidity(o.liquidityA), toLiquidity(o.liquidityB)) >= minLiquidity,
+      )
+    }
+
+    return result
+  }, [sorted, search, pairFilter, spreadFilter, minLiquidity])
+
+  const hasActiveFilters = pairFilter !== null || spreadFilter !== null || minLiquidity > 0
 
   const avgSpread = useMemo(() => {
     if (sorted.length === 0) return 0
@@ -389,6 +481,143 @@ export default function MarketsPage() {
               </button>
             )}
           </div>
+
+          {/* ---- Filters ---- */}
+          <div className="flex items-center gap-0 mb-4 rounded-lg border border-[#1C2030]/80 bg-[#0A0C10] overflow-x-auto">
+            {/* Pair group */}
+            <div className="flex items-center shrink-0">
+              <span className="text-[9px] text-[#262D3D] uppercase tracking-[0.15em] font-semibold px-3 shrink-0 select-none">Pair</span>
+              <div className="flex items-center">
+                <button
+                  onClick={() => setPairFilter(null)}
+                  className={`relative px-2.5 py-[7px] text-[11px] font-medium transition-all duration-150 ${
+                    pairFilter === null
+                      ? 'text-[#00D4FF] bg-[#00D4FF]/[0.07]'
+                      : 'text-[#3D4350] hover:text-[#6B7280] hover:bg-white/[0.02]'
+                  }`}
+                >
+                  All
+                  {pairFilter === null && <span className="absolute bottom-0 left-1 right-1 h-[2px] rounded-full bg-[#00D4FF]/60" />}
+                </button>
+                {availablePairs.map(([key, { a, b, count }]) => (
+                  <button
+                    key={key}
+                    onClick={() => setPairFilter(pairFilter === key ? null : key)}
+                    className={`relative inline-flex items-center gap-1 px-2.5 py-[7px] text-[11px] font-medium transition-all duration-150 ${
+                      pairFilter === key
+                        ? 'text-[#00D4FF] bg-[#00D4FF]/[0.07]'
+                        : 'text-[#3D4350] hover:text-[#6B7280] hover:bg-white/[0.02]'
+                    }`}
+                  >
+                    <span className="inline-flex items-center -space-x-1">
+                      <ProtocolLogo name={a} size={14} />
+                      <ProtocolLogo name={b} size={14} />
+                    </span>
+                    <span className="font-mono text-[10px] opacity-40 tabular-nums">{count}</span>
+                    {pairFilter === key && <span className="absolute bottom-0 left-1 right-1 h-[2px] rounded-full bg-[#00D4FF]/60" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="w-px h-5 bg-[#1C2030] shrink-0" />
+
+            {/* Spread group */}
+            <div className="flex items-center shrink-0">
+              <span className="text-[9px] text-[#262D3D] uppercase tracking-[0.15em] font-semibold px-3 shrink-0 select-none">Spread</span>
+              <div className="flex items-center">
+                <button
+                  onClick={() => setSpreadFilter(null)}
+                  className={`relative px-2.5 py-[7px] text-[11px] font-mono font-medium transition-all duration-150 ${
+                    spreadFilter === null
+                      ? 'text-[#00D4FF] bg-[#00D4FF]/[0.07]'
+                      : 'text-[#3D4350] hover:text-[#6B7280] hover:bg-white/[0.02]'
+                  }`}
+                >
+                  All
+                  {spreadFilter === null && <span className="absolute bottom-0 left-1 right-1 h-[2px] rounded-full bg-[#00D4FF]/60" />}
+                </button>
+                {SPREAD_RANGES.map((range, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setSpreadFilter(spreadFilter === i ? null : i)}
+                    className={`relative px-2.5 py-[7px] text-[11px] font-mono font-medium transition-all duration-150 whitespace-nowrap ${
+                      spreadFilter === i
+                        ? 'text-[#00D4FF] bg-[#00D4FF]/[0.07]'
+                        : 'text-[#3D4350] hover:text-[#6B7280] hover:bg-white/[0.02]'
+                    }`}
+                  >
+                    {range.label}
+                    {spreadFilter === i && <span className="absolute bottom-0 left-1 right-1 h-[2px] rounded-full bg-[#00D4FF]/60" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="w-px h-5 bg-[#1C2030] shrink-0" />
+
+            {/* Liquidity group */}
+            <div className="flex items-center shrink-0">
+              <span className="text-[9px] text-[#262D3D] uppercase tracking-[0.15em] font-semibold px-3 shrink-0 select-none">Liq</span>
+              <div className="flex items-center">
+                {LIQUIDITY_TIERS.map((tier) => (
+                  <button
+                    key={tier.min}
+                    onClick={() => setMinLiquidity(minLiquidity === tier.min ? 0 : tier.min)}
+                    className={`relative px-2.5 py-[7px] text-[11px] font-mono font-medium transition-all duration-150 whitespace-nowrap ${
+                      minLiquidity === tier.min
+                        ? 'text-[#00D4FF] bg-[#00D4FF]/[0.07]'
+                        : 'text-[#3D4350] hover:text-[#6B7280] hover:bg-white/[0.02]'
+                    }`}
+                  >
+                    {tier.label}
+                    {minLiquidity === tier.min && <span className="absolute bottom-0 left-1 right-1 h-[2px] rounded-full bg-[#00D4FF]/60" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="w-px h-5 bg-[#1C2030] shrink-0" />
+
+            {/* Sort group */}
+            <div className="flex items-center shrink-0">
+              <span className="text-[9px] text-[#262D3D] uppercase tracking-[0.15em] font-semibold px-3 shrink-0 select-none">Sort</span>
+              <div className="flex items-center">
+                {([
+                  { key: 'spread' as SortKey, label: 'Spread' },
+                  { key: 'profit' as SortKey, label: 'Profit' },
+                  { key: 'liquidity' as SortKey, label: 'Liq' },
+                ]).map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => setSortBy(key)}
+                    className={`relative px-2.5 py-[7px] text-[11px] font-medium transition-all duration-150 ${
+                      sortBy === key
+                        ? 'text-[#00D4FF] bg-[#00D4FF]/[0.07]'
+                        : 'text-[#3D4350] hover:text-[#6B7280] hover:bg-white/[0.02]'
+                    }`}
+                  >
+                    {sortBy === key && <span className="mr-0.5 text-[9px] opacity-60">{'\u25BE'}</span>}
+                    {label}
+                    {sortBy === key && <span className="absolute bottom-0 left-1 right-1 h-[2px] rounded-full bg-[#00D4FF]/60" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Clear — pushed right */}
+            {hasActiveFilters && (
+              <>
+                <div className="flex-1 min-w-2" />
+                <button
+                  onClick={() => { setPairFilter(null); setSpreadFilter(null); setMinLiquidity(0) }}
+                  className="shrink-0 px-3 py-[7px] text-[10px] font-mono text-[#3D4350] hover:text-[#00D4FF] transition-colors"
+                >
+                  Reset
+                </button>
+              </>
+            )}
+          </div>
         </>
       )}
 
@@ -402,16 +631,24 @@ export default function MarketsPage() {
         </div>
       )}
 
-      {filtered.length === 0 && search && sorted.length > 0 && (
+      {filtered.length === 0 && sorted.length > 0 && (
         <div className="py-8 text-center">
           <div className="text-xs font-mono text-[#262D3D]">
-            No markets matching &ldquo;{search}&rdquo;
+            {search ? <>No markets matching &ldquo;{search}&rdquo;</> : 'No markets match current filters'}
           </div>
+          {hasActiveFilters && (
+            <button
+              onClick={() => { setPairFilter(null); setSpreadFilter(null); setMinLiquidity(0); setSearch('') }}
+              className="text-[11px] font-mono text-[#3D4350] hover:text-[#00D4FF] transition-colors mt-2"
+            >
+              Reset all filters
+            </button>
+          )}
         </div>
       )}
 
       {filtered.length > 0 && (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {filtered.map((opp, i) => (
             <MarketCard key={`${opp.marketId}-${i}`} opp={opp} rank={i + 1} />
           ))}

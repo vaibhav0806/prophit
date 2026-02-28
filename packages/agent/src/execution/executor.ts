@@ -324,11 +324,13 @@ export class Executor {
     });
 
     // Calculate size: cap to liquidity (90%)
-    // When Safe proxy is configured, each leg uses a separate wallet (EOA for Predict, Safe for Probable)
-    // so we don't need to halve the position size. Without Safe, both legs come from the EOA.
+    // Separate wallets only apply when Safe is configured AND this opportunity has a Probable leg.
+    // For Predict↔Opinion opportunities, both legs come from the EOA even if Safe exists.
     const SCALE = 1_000_000n;
-    const hasSeparateWallets = !!this.clobClients.probableProxyAddress;
-    let sizeUsdt = Number(hasSeparateWallets ? maxPositionSize : maxPositionSize / 2n) / 1_000_000;
+    const hasProbableLeg = opportunity.protocolA.toLowerCase() === "probable" ||
+                           opportunity.protocolB.toLowerCase() === "probable";
+    const usingSeparateWallets = !!this.clobClients.probableProxyAddress && hasProbableLeg;
+    let sizeUsdt = Number(usingSeparateWallets ? maxPositionSize : maxPositionSize / 2n) / 1_000_000;
 
     const liqA = Number(opportunity.liquidityA) / 1_000_000;
     const liqB = Number(opportunity.liquidityB) / 1_000_000;
@@ -343,7 +345,7 @@ export class Executor {
       return;
     }
 
-    // Pre-check USDT balance (EOA covers Predict leg; Safe covers Probable leg when configured)
+    // Pre-check USDT balance (EOA covers non-Probable legs; Safe covers Probable leg when configured)
     const account = this.walletClient?.account;
     if (account && !this.config.dryRun) {
       try {
@@ -353,8 +355,8 @@ export class Executor {
           functionName: "balanceOf",
           args: [account.address],
         });
-        // When Safe is configured, EOA only needs to cover the non-Probable leg
-        const eoaLegs = this.clobClients.probableProxyAddress ? 1 : 2;
+        // EOA covers 1 leg when Safe handles the Probable leg, otherwise both legs
+        const eoaLegs = usingSeparateWallets ? 1 : 2;
         const requiredWei = BigInt(Math.round(sizeUsdt * eoaLegs * 1e6)) * 10n ** 12n;
         if (usdtBalance < requiredWei) {
           // Cap size to EOA balance instead of skipping entirely

@@ -1517,6 +1517,75 @@ describe("executeClob with Opinion + Predict", () => {
     expect(opinionClient.placeOrder).toHaveBeenCalled();
     expect(predictClient.placeOrder).toHaveBeenCalled();
   });
+
+  it("Predict + Opinion with Safe proxy still halves position (no Probable leg)", async () => {
+    // Safe exists (probableProxyAddress set) but opportunity is Predict↔Opinion
+    // → usingSeparateWallets should be false since no Probable leg
+    // → position halved (both legs from EOA)
+    const proxyAddr = "0x3333333333333333333333333333333333333333" as `0x${string}`;
+    const config = { ...mockConfig, dryRun: true };
+
+    const executor = new Executor(
+      undefined,
+      config,
+      mockPublicClient,
+      { opinion: opinionClient, predict: predictClient, probableProxyAddress: proxyAddr },
+      createOpinionMetaResolvers(),
+      undefined,
+    );
+
+    const opp = createOpportunity({
+      protocolA: "Opinion",
+      protocolB: "Predict",
+      liquidityA: 500_000_000n,
+      liquidityB: 500_000_000n,
+    });
+
+    // maxPositionSize = 10_000_000n (10 USDT) → halved to 5 USDT since no Probable leg
+    const result = await executor.executeBest(opp, 10_000_000n);
+
+    expect(result).toBeDefined();
+    const opinionCall = vi.mocked(opinionClient.placeOrder).mock.calls[0][0] as PlaceOrderParams;
+    expect(opinionCall.size).toBe(5); // halved: 10 / 2 = 5
+  });
+
+  it("Probable + Opinion with Safe proxy uses separate wallets (no halving)", async () => {
+    // Safe exists AND opportunity has Probable leg → usingSeparateWallets=true
+    // → position NOT halved, eoaLegs=1 (EOA covers Opinion only)
+    const walletAccount = { address: "0x1111111111111111111111111111111111111111" as `0x${string}` };
+    const proxyAddr = "0x3333333333333333333333333333333333333333" as `0x${string}`;
+    const config = { ...mockConfig, dryRun: true };
+
+    const probableClient = createMockClobClient("probable");
+    const resolver = { getMarketMeta: vi.fn().mockReturnValue(mockMeta) };
+    const metaResolvers = new Map<string, typeof resolver>([
+      ["Probable", resolver],
+      ["Opinion", resolver],
+    ]);
+
+    const executor = new Executor(
+      undefined,
+      config,
+      mockPublicClient,
+      { probable: probableClient, opinion: opinionClient, probableProxyAddress: proxyAddr },
+      metaResolvers,
+      { account: walletAccount } as any,
+    );
+
+    const opp = createOpportunity({
+      protocolA: "Probable",
+      protocolB: "Opinion",
+      liquidityA: 500_000_000n,
+      liquidityB: 500_000_000n,
+    });
+
+    const result = await executor.executeBest(opp, 10_000_000n);
+
+    expect(result).toBeDefined();
+    // In dry-run the full maxPositionSize (10 USDT) should be used, not halved
+    const probCall = vi.mocked(probableClient.placeOrder).mock.calls[0][0] as PlaceOrderParams;
+    expect(probCall.size).toBe(10); // NOT 5 — separate wallets, no halving
+  });
 });
 
 describe("executeClob staleness", () => {

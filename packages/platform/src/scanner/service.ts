@@ -73,6 +73,9 @@ export class ScannerService {
         if (result.linkMap) {
           this.quoteStore.setLinks(new Map(Object.entries(result.linkMap)));
         }
+        if (result.imageMap) {
+          this.quoteStore.setImages(new Map(Object.entries(result.imageMap)));
+        }
         console.log(`[Scanner] Auto-discovery complete: ${result.matches.length} matches (Probable: ${Object.keys(probableMarketMap).length}, Opinion: ${Object.keys(opinionMarketMap).length})`);
       } catch (err) {
         console.error("[Scanner] Auto-discovery failed:", err);

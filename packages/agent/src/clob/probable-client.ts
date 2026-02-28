@@ -781,7 +781,7 @@ export class ProbableClobClient implements ClobClient {
 
     const deficit = threshold18 - safeBalance
 
-    // Check EOA has enough USDT — reserve half the TOTAL for EOA's own Predict leg
+    // Check EOA has enough USDT — reserve a full position for EOA's non-Probable legs
     const eoaBalance = await publicClient.readContract({
       address: BSC_USDT,
       abi: ERC20_BALANCE_OF_ABI,
@@ -789,12 +789,12 @@ export class ProbableClobClient implements ClobClient {
       args: [account.address],
     })
 
-    // Reserve enough in EOA for the Predict leg (half the position + 5% buffer for fees/gas)
-    const halfThreshold18 = threshold18 / 2n;
-    const eoaReserve = halfThreshold18 + (halfThreshold18 * 5n / 100n); // half + 5% buffer
+    // Reserve a full position size + 5% buffer in EOA for non-Probable legs (Predict or Opinion).
+    // Both use the EOA, so EOA must always be able to cover at least one full leg.
+    const eoaReserve = threshold18 + (threshold18 * 5n / 100n);
     const transferable = eoaBalance > eoaReserve ? eoaBalance - eoaReserve : 0n
     if (transferable === 0n) {
-      log.warn("EOA USDT insufficient to fund Safe (need to reserve for Predict leg)", {
+      log.warn("EOA USDT insufficient to fund Safe (need to reserve for non-Probable legs)", {
         eoaBalance: eoaBalance.toString(),
         eoaReserve: eoaReserve.toString(),
         safe: this.proxyAddress,
@@ -805,7 +805,7 @@ export class ProbableClobClient implements ClobClient {
     // Transfer the lesser of deficit and transferable (don't drain EOA below reserve)
     const transferAmount = deficit < transferable ? deficit : transferable
     if (transferAmount < deficit) {
-      log.warn("Auto-fund: partial transfer (reserving EOA balance for Predict leg)", {
+      log.warn("Auto-fund: partial transfer (reserving EOA balance for non-Probable legs)", {
         deficit: deficit.toString(),
         transferAmount: transferAmount.toString(),
         eoaReserve: eoaReserve.toString(),

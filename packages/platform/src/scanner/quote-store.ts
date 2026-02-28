@@ -10,6 +10,7 @@ export class QuoteStore {
   private metaResolvers: Map<string, MarketMetaResolver> = new Map();
   private titleMap: Map<string, string> = new Map();
   private linkMap: Map<string, { predict?: string; probable?: string; opinion?: string }> = new Map();
+  private imageMap: Map<string, string> = new Map();
 
   setTitles(titles: Map<string, string>): void {
     this.titleMap = titles;
@@ -25,6 +26,14 @@ export class QuoteStore {
 
   getLinks(marketId: string): { predict?: string; probable?: string; opinion?: string } | undefined {
     return this.linkMap.get(marketId);
+  }
+
+  setImages(images: Map<string, string>): void {
+    this.imageMap = images;
+  }
+
+  getImage(marketId: string): string | undefined {
+    return this.imageMap.get(marketId);
   }
 
   update(quotes: MarketQuote[], metaResolvers?: Map<string, MarketMetaResolver>): void {

@@ -36,6 +36,7 @@ export class PredictProvider extends MarketProvider {
   private apiBase: string;
   private apiKey: string;
   private marketIds: `0x${string}`[];
+  private deadMarketIds = new Set<string>();
   // Maps our internal marketId to Predict's market ID and outcome tokenIds
   private marketMap: Map<
     string,
@@ -61,6 +62,7 @@ export class PredictProvider extends MarketProvider {
 
   async fetchQuotes(): Promise<MarketQuote[]> {
     const entries = this.marketIds
+      .filter((id) => !this.deadMarketIds.has(id))
       .map((id) => ({ id, mapping: this.marketMap.get(id) }))
       .filter((e): e is { id: `0x${string}`; mapping: NonNullable<typeof e.mapping> } => !!e.mapping);
 
@@ -121,10 +123,12 @@ export class PredictProvider extends MarketProvider {
           quotedAt: Date.now(),
         } satisfies MarketQuote;
       } catch (err) {
-        log.warn("Failed to fetch Predict quote", {
-          marketId,
-          error: String(err),
-        });
+        if (err instanceof Error && err.message.includes("404")) {
+          this.deadMarketIds.add(marketId);
+          log.info("Predict market delisted, skipping future polls", { marketId });
+        } else {
+          log.warn("Failed to fetch Predict quote", { marketId, error: String(err) });
+        }
         return null;
       }
     }, 10);
@@ -162,7 +166,7 @@ export class PredictProvider extends MarketProvider {
           throw new Error("Invalid orderbook response");
         return book as PredictOrderBook;
       },
-      { label: `Predict orderbook ${predictMarketId}`, retries: 1, delayMs: 500 },
+      { label: `Predict orderbook ${predictMarketId}`, retries: 1, delayMs: 500, shouldRetry: (err) => !(err instanceof Error && err.message.includes("404")) },
     );
   }
 }

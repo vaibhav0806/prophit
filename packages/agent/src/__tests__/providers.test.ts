@@ -213,6 +213,24 @@ describe("PredictProvider", () => {
     const quotes = await provider.fetchQuotes();
     expect(quotes).toHaveLength(0);
   });
+
+  it("marks 404 markets as dead and skips on subsequent polls", async () => {
+    // First call: return 404
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("", { status: 404 }),
+    );
+
+    const provider = createProvider();
+    const quotes1 = await provider.fetchQuotes();
+    expect(quotes1).toHaveLength(0);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    // Second call: fetch should not be called — market is dead
+    fetchSpy.mockClear();
+    const quotes2 = await provider.fetchQuotes();
+    expect(quotes2).toHaveLength(0);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

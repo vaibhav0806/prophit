@@ -55,9 +55,9 @@ function NavIcon({ name }: { name: string }) {
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/wallet", label: "Wallet" },
-  { href: "/trades", label: "Trades" },
   { href: "/markets", label: "Markets" },
+  { href: "/trades", label: "Trades" },
+  { href: "/wallet", label: "Wallet" },
   { href: "/settings", label: "Settings" },
 ];
 

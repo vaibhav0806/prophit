@@ -16,6 +16,7 @@ export function createMarketRoutes(quoteStore: QuoteStore): Hono {
       opportunities: opportunities.map(o => ({
         marketId: o.marketId,
         title: quoteStore.getTitle(o.marketId) ?? null,
+        image: quoteStore.getImage(o.marketId) ?? null,
         links: quoteStore.getLinks(o.marketId) ?? null,
         protocolA: o.protocolA,
         protocolB: o.protocolB,

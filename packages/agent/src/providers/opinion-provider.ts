@@ -69,11 +69,11 @@ export class OpinionProvider extends MarketProvider {
 
     const results = await pMap(entries, async ({ id: marketId, mapping }) => {
       try {
-        // Fetch orderbooks for YES and NO tokens
-        const [yesBook, noBook] = await Promise.all([
-          this.fetchOrderBook(mapping.yesTokenId),
-          this.fetchOrderBook(mapping.noTokenId),
-        ]);
+        // Fetch orderbooks sequentially to avoid hammering Opinion's rate limits.
+        // With concurrency=3 and 2 requests per market, parallel would mean 6 simultaneous
+        // connections — enough to trigger 429s. Sequential keeps it at 3.
+        const yesBook = await this.fetchOrderBook(mapping.yesTokenId);
+        const noBook = await this.fetchOrderBook(mapping.noTokenId);
 
         // Sort asks ascending for correct best-price and depth calculation
         const sortedYesAsks = [...yesBook.asks].sort((a, b) => Number(a.price) - Number(b.price));
@@ -125,7 +125,7 @@ export class OpinionProvider extends MarketProvider {
         log.warn("Failed to fetch Opinion quote", { marketId, error: String(err) });
         return null;
       }
-    }, 5);
+    }, 3);
 
     return results.filter((q): q is MarketQuote => q !== null);
   }
@@ -143,6 +143,11 @@ export class OpinionProvider extends MarketProvider {
       const book = data.result ?? data;
       if (!book.asks || !book.bids) throw new Error("Invalid orderbook response");
       return book as OpinionOrderBook;
-    }, { label: `Opinion orderbook ${tokenId}`, retries: 1, delayMs: 500 });
+    }, {
+      label: `Opinion orderbook ${tokenId}`,
+      retries: 1,
+      delayMs: 500,
+      shouldRetry: (err) => !String(err).includes("429"), // don't retry rate limits
+    });
   }
 }

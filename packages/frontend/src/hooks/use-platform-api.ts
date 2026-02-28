@@ -144,6 +144,7 @@ export function useMarkets() {
       opportunities: Array<{
         marketId: string;
         title: string | null;
+        image: string | null;
         links: { predict?: string; probable?: string; opinion?: string } | null;
         protocolA: string;
         protocolB: string;

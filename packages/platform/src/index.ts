@@ -48,24 +48,31 @@ const platformConfig = {
   opinionExchangeAddress: (process.env.OPINION_EXCHANGE_ADDRESS || scannerConfig.opinionAdapterAddress || undefined) as `0x${string}` | undefined,
 };
 
-const databaseUrl = requireEnv("DATABASE_URL");
-const db = createDb(databaseUrl);
+const databaseUrl = process.env.DATABASE_URL;
+const db = databaseUrl ? createDb(databaseUrl) : null;
 
 const quoteStore = new QuoteStore();
 const scanner = new ScannerService(scannerConfig, quoteStore);
 const agentManager = new AgentManager(quoteStore, platformConfig);
 
-const depositWatcher = new DepositWatcher({
-  db,
-  rpcUrl: scannerConfig.rpcUrl,
-  chainId: scannerConfig.chainId,
-});
+let depositWatcher: DepositWatcher | null = null;
+let withdrawalProcessor: WithdrawalProcessor | null = null;
 
-const withdrawalProcessor = new WithdrawalProcessor({
-  db,
-  privyClient,
-  chainId: scannerConfig.chainId,
-});
+if (db) {
+  depositWatcher = new DepositWatcher({
+    db,
+    rpcUrl: scannerConfig.rpcUrl,
+    chainId: scannerConfig.chainId,
+  });
+
+  withdrawalProcessor = new WithdrawalProcessor({
+    db,
+    privyClient,
+    chainId: scannerConfig.chainId,
+  });
+} else {
+  console.warn("[Platform] DATABASE_URL not set — DepositWatcher and WithdrawalProcessor disabled");
+}
 
 const port = Number(process.env.PORT ?? "4000");
 
@@ -73,7 +80,7 @@ async function main() {
   console.log("[Platform] Initializing scanner...");
   await scanner.initialize();
   scanner.start();
-  depositWatcher.start();
+  depositWatcher?.start();
 
   const app = createPlatformServer({
     db,
@@ -101,7 +108,7 @@ process.on("SIGINT", () => {
   console.log("[Platform] Shutting down...");
   agentManager.stopAll();
   scanner.stop();
-  depositWatcher.stop();
+  depositWatcher?.stop();
   process.exit(0);
 });
 
@@ -109,7 +116,7 @@ process.on("SIGTERM", () => {
   console.log("[Platform] Shutting down...");
   agentManager.stopAll();
   scanner.stop();
-  depositWatcher.stop();
+  depositWatcher?.stop();
   process.exit(0);
 });
 

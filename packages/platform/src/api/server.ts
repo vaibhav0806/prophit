@@ -23,10 +23,10 @@ export type AuthEnv = {
 };
 
 export interface ServerDeps {
-  db: Database;
+  db: Database | null;
   agentManager: AgentManager;
-  depositWatcher: DepositWatcher;
-  withdrawalProcessor: WithdrawalProcessor;
+  depositWatcher: DepositWatcher | null;
+  withdrawalProcessor: WithdrawalProcessor | null;
   quoteStore: QuoteStore;
   rpcUrl: string;
   chainId: number;
@@ -63,41 +63,46 @@ export function createPlatformServer(deps: ServerDeps): Hono {
   }));
 
   // Public routes (no auth)
-  app.route("/api/auth", createAuthRoutes(deps.db));
   app.route("/api/markets", createMarketRoutes(deps.quoteStore));
 
   // Health check
   app.get("/api/health", (c) => c.json({ ok: true, timestamp: Date.now() }));
 
-  // Protected routes (require Privy token)
-  const protectedRoutes = new Hono();
-  protectedRoutes.use("*", authMiddleware);
+  // DB-dependent routes
+  if (deps.db) {
+    const db = deps.db;
+    app.route("/api/auth", createAuthRoutes(db));
 
-  // Rate limiting — withdrawal endpoint (5 req/min per user)
-  protectedRoutes.use("/api/wallet/withdraw", rateLimit({
-    limit: 5,
-    windowMs: 60_000,
-    keyFn: (c) => {
-      if (c.req.method !== "POST") return null;
-      return `withdraw:${c.get("userId")}`;
-    },
-  }));
+    // Protected routes (require Privy token)
+    const protectedRoutes = new Hono();
+    protectedRoutes.use("*", authMiddleware);
 
-  protectedRoutes.route("/api/wallet", createWalletRoutes({
-    db: deps.db,
-    depositWatcher: deps.depositWatcher,
-    withdrawalProcessor: deps.withdrawalProcessor,
-  }));
-  protectedRoutes.route("/api/agent", createAgentRoutes({
-    db: deps.db,
-    agentManager: deps.agentManager,
-    rpcUrl: deps.rpcUrl,
-    chainId: deps.chainId,
-  }));
-  protectedRoutes.route("/api/trades", createTradeRoutes(deps.db));
-  protectedRoutes.route("/api/me", createConfigRoutes(deps.db));
+    // Rate limiting — withdrawal endpoint (5 req/min per user)
+    protectedRoutes.use("/api/wallet/withdraw", rateLimit({
+      limit: 5,
+      windowMs: 60_000,
+      keyFn: (c) => {
+        if (c.req.method !== "POST") return null;
+        return `withdraw:${c.get("userId")}`;
+      },
+    }));
 
-  app.route("/", protectedRoutes);
+    protectedRoutes.route("/api/wallet", createWalletRoutes({
+      db,
+      depositWatcher: deps.depositWatcher!,
+      withdrawalProcessor: deps.withdrawalProcessor!,
+    }));
+    protectedRoutes.route("/api/agent", createAgentRoutes({
+      db,
+      agentManager: deps.agentManager,
+      rpcUrl: deps.rpcUrl,
+      chainId: deps.chainId,
+    }));
+    protectedRoutes.route("/api/trades", createTradeRoutes(db));
+    protectedRoutes.route("/api/me", createConfigRoutes(db));
+
+    app.route("/", protectedRoutes);
+  }
 
   return app;
 }

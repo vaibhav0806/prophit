@@ -525,9 +525,9 @@ Identical approach to Probable — separate YES/NO orderbooks, 100 bps liquidity
 
 Two execution modes, selected via `EXECUTION_MODE` env var:
 
-### Vault Mode
+### Vault Mode (Not Used in Production)
 
-Uses the `ProphitVault` smart contract for atomic on-chain execution. Both legs are settled via adapter contracts in a single transaction.
+Uses the `ProphetVault` smart contract for atomic on-chain execution. Both legs are settled via adapter contracts in a single transaction. **Not used in production** — arbitrage is a speed game, and on-chain transactions (~3s block confirmation) are too slow compared to CLOB API order placement (sub-second). The contracts exist as an alternative atomic execution path.
 
 ```
 Executor.executeVault(opportunity, maxPositionSize)
@@ -540,9 +540,9 @@ Executor.executeVault(opportunity, maxPositionSize)
   └─► vaultClient.openPosition(adapterA, adapterB, marketIdA, marketIdB, ...)
 ```
 
-### CLOB Mode (Primary)
+### CLOB Mode (Production)
 
-Sequential order placement across separate CLOB exchanges. This is the main production mode.
+Sequential order placement via off-chain CLOB APIs. This is the production execution mode — all three platforms expose CLOB APIs that accept EIP-712 signed orders and settle on BSC, giving sub-second execution vs ~3s on-chain block times. Speed is critical for arbitrage; by the time an on-chain tx confirms, the spread may already be gone.
 
 ```
 Executor.executeClob(opportunity, maxPositionSize)
@@ -734,9 +734,9 @@ sizeRaw = BigInt(Math.round(size * 1e8)) * scaleBig / 100_000_000n
 
 ## Adapter Strategy
 
-**On-chain contracts (Vault mode only)**
+**On-chain contracts (Vault mode only — not used in production)**
 
-The vault delegates market interaction to platform-specific adapter contracts implementing `IProtocolAdapter`:
+Production uses CLOB APIs for speed (sub-second vs ~3s block time). The on-chain adapter contracts below are an alternative atomic execution path. The vault delegates market interaction to platform-specific adapter contracts implementing `IProtocolAdapter`:
 
 ```solidity
 interface IProtocolAdapter {

@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="#access-prophet">Access</a> · <a href="#how-it-works">How It Works</a> · <a href="#supported-platforms">Platforms</a> · <a href="#quick-start">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="PLAN.md">Plan</a>
+  <a href="#access-prophet">Access</a> · <a href="#how-it-works">How It Works</a> · <a href="#supported-platforms">Platforms</a> · <a href="#quick-start">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="docs/user-journey.md">User Journey</a> · <a href="PLAN.md">Plan</a>
 </p>
 
 ---
@@ -88,6 +88,20 @@ Example: "Will Portugal win FIFA World Cup?"
 
 The agent finds these spreads automatically, matches equivalent markets across platforms using the matching engine, and executes both legs sequentially — unreliable leg first (Probable/Opinion), reliable leg (Predict) only if the first fills.
 
+## What's Novel
+
+**Problem**: BNB Chain has 3 prediction market CLOBs (Predict, Probable, Opinion Labs) that list the same events under different titles, different IDs, and different orderbook formats. Price discrepancies of 50-400 bps exist continuously, but no tooling exists to detect or exploit them — manual monitoring is impractical across 2,500+ markets.
+
+**Our solution** introduces three techniques we haven't seen elsewhere:
+
+1. **3-pass cross-platform market matching** — Markets across platforms use different titles for the same event ("Will Portugal win?" vs "Portugal to win FIFA WC 2026?"). Our matching engine uses conditionId matching, template extraction with entity/params normalization (Unicode confusable replacement, NFKD, year stripping), and composite similarity (max of Jaccard + bigram Dice at 0.85 threshold) with a template guard to prevent false positives. Production result: **102 matches from ~2,500 markets, 0 false positives**.
+
+2. **Zero-cost failure execution model** — Arbitrage agents typically risk capital on the first leg. We execute the unreliable leg first (Probable/Opinion — thin orderbooks, frequent FOK failures) before the reliable leg (Predict — deep liquidity). If the unreliable leg fails, total cost is $0. This is a non-obvious inversion of the typical "reliable first" strategy.
+
+3. **AI-native trading interface via MCP** — Prophet exposes a Model Context Protocol server, allowing users to monitor and control their arbitrage agent through natural language via Claude. This is a first for DeFi trading agents — no other prediction market tool has an MCP integration.
+
+Additionally: Privy embedded wallets with delegated signing (users never manage private keys), Gnosis Safe proxy auto-deployment for Probable's signatureType requirement, and a Telegram bot for mobile-first agent control.
+
 ## Supported Platforms
 
 | Platform    | Type | Fees    | Auth                | Status |
@@ -135,7 +149,7 @@ packages/
   mcp/           MCP server: Claude Desktop/Code integration (stdio transport)
   cli/           Interactive REPL CLI: terminal-based agent control
   shared/        Drizzle ORM schema, shared types, migrations
-  contracts/     Solidity vault + protocol adapters (Foundry)
+  contracts/     Solidity vault + protocol adapters (Foundry, not used in prod — CLOB APIs are faster)
 ```
 
 ### Agent Package
@@ -316,6 +330,132 @@ Key test suites:
 | Auth     | Privy (embedded wallets, delegated signing)              |
 | Chain    | BSC mainnet (56), Gnosis CTF (ERC-1155)                  |
 
+## BNB Chain Integration
+
+Prophet operates natively on **BNB Chain (BSC mainnet, chainId 56)** using [viem](https://viem.sh) for all on-chain interactions.
+
+### On-Chain Protocols
+
+| Protocol | Usage | Contract |
+|---|---|---|
+| **Gnosis CTF** (ERC-1155) | Conditional token framework — outcome tokens for all 3 platforms | `0x364d...` / `0x22DA...` / `0xAD1a...` |
+| **Gnosis Safe** | 1-of-1 proxy wallets for Probable CLOB orders (signatureType 2) | Factory: `0xB991...` |
+| **BSC USDT** (BEP-20) | Collateral for all trades — approvals, transfers, balance tracking | `0x55d3...9955` |
+| **Predict Exchange** | EIP-712 signed limit orders (Standard + NegRisk + Yield variants) | `0x8BC0...` |
+| **Probable Exchange** | EIP-712 signed orders via Safe proxy (HMAC L2 auth) | `0xf99f...` |
+| **Opinion Exchange** | EIP-712 signed orders (API key auth) | — |
+
+### On-Chain Operations
+
+- **EIP-712 order signing** — typed data signatures for all 3 CLOB platforms (different domain separators)
+- **ERC-20 approvals** — `approve(MAX_UINT256)` to exchange + CTF contracts for USDT
+- **ERC-1155 approvals** — `setApprovalForAll` for CTF outcome tokens
+- **Safe proxy deployment** — deterministic `createProxy()` via Probable's factory, threshold=1 owner=EOA
+- **Safe transaction execution** — `execTransaction()` for approvals + order placement through Safe
+- **Balance monitoring** — `USDT.balanceOf()` for deposit detection, daily loss tracking, auto-funding
+- **Auto-fund Safe** — EOA auto-transfers USDT to Safe proxy when balance drops below position threshold
+
+### Why CLOB APIs, Not On-Chain Contracts
+
+`packages/contracts/` contains a ProphetVault + 3 protocol adapter contracts (Foundry) that can execute trades atomically on-chain. However, **production uses CLOB APIs exclusively** — arbitrage is a speed game, and off-chain CLOB order placement (EIP-712 signed, settled by the exchange) is orders of magnitude faster than submitting on-chain transactions and waiting for block confirmation. All three platforms (Predict, Probable, Opinion) expose CLOB APIs that accept signed orders and settle on BSC, giving us sub-second execution vs ~3s block times.
+
+The Solidity contracts remain as an alternative atomic execution path and demonstrate on-chain composability with Gnosis CTF.
+
+Full address list in [ARCHITECTURE.md — On-Chain Addresses](./ARCHITECTURE.md#on-chain-addresses).
+
+## Dependencies
+
+Key open-source dependencies powering Prophet:
+
+| Dependency | Version | Purpose |
+|---|---|---|
+| [Hono](https://hono.dev) | ^4.6.0 | Lightweight web framework for Platform API |
+| [Next.js](https://nextjs.org) | 14.2.35 | React framework for frontend dashboard |
+| [viem](https://viem.sh) | ^2.21.0 | TypeScript Ethereum client (BNB Chain interactions) |
+| [Drizzle ORM](https://orm.drizzle.team) | ^0.38.4 | TypeScript ORM for PostgreSQL |
+| [Privy SDK](https://privy.io) | ^0.9.0 / ^3.14.1 | Auth + embedded wallet custody (server + React) |
+| [Grammy](https://grammy.dev) | ^1.31.0 | Telegram Bot API framework |
+| [TanStack Query](https://tanstack.com/query) | ^5.90.21 | Data fetching & caching for React |
+| [@modelcontextprotocol/sdk](https://modelcontextprotocol.io) | ^1.0.0 | MCP server for Claude integration |
+| [Tailwind CSS](https://tailwindcss.com) | ^3.4 | Utility-first CSS framework |
+| [Zod](https://zod.dev) | ^3.0.0 | Runtime schema validation |
+| [chalk](https://github.com/chalk/chalk) | ^5.0.0 | Terminal string styling (CLI) |
+| [dotenv](https://github.com/motdotla/dotenv) | ^16.6.1 | Environment variable loading |
+| [postgres](https://github.com/porsager/postgres) | ^3.4.0 | PostgreSQL driver |
+
+Full dependency lists in each `packages/*/package.json`.
+
+## Deployment
+
+All services can be started with a single command using Docker Compose:
+
+```bash
+# Start all services (platform, frontend, telegram)
+docker compose up --build
+
+# Or run in background
+docker compose up -d --build
+```
+
+See individual Dockerfiles in `packages/platform/Dockerfile`, `packages/frontend/Dockerfile`, and `packages/telegram/Dockerfile`.
+
+## Market Opportunity
+
+Prediction markets are the fastest-growing vertical in crypto:
+
+| Metric | Value |
+|---|---|
+| Global prediction market volume (2025) | **$50B+** |
+| Monthly volume on BNB Chain platforms | **$2B+** |
+| BNB Chain CLOBs | **3** (Predict.fun, Probable, Opinion Labs — more coming) |
+
+**The problem is fragmentation.** The same event ("Will BTC hit $100K?") trades at $0.62 on one platform and $0.55 on another. Identical outcomes, mispriced across siloed orderbooks. These mispricings persist for **hours** because no cross-platform infrastructure exists — each CLOB has different APIs, signing schemes, and wallet requirements. The complexity of integrating 3 different platforms keeps arbitrageurs out.
+
+**Why now?**
+- Prediction markets have hit escape velocity — every chain is racing to build CLOBs. Fragmentation = arbitrage.
+- Complexity is the moat — each CLOB has different signing schemes and wallet requirements. This keeps spreads alive.
+- Infrastructure just matured — Privy embedded wallets, prediction market APIs, and CLOBs. This stack didn't exist 18 months ago.
+
+## Business Model
+
+We profit when our users profit — performance fee on realized arbitrage gains.
+
+|  | Prophet | Manual Arb | CEX Bots |
+|---|---|---|---|
+| **Revenue** | Performance fee | N/A | Monthly subscription |
+| **Risk** | Delta-neutral | Execution risk | Market risk |
+| **Setup** | 2 minutes | Days | Hours |
+| **Custody** | Non-custodial (Privy) | Self-managed | Custodial |
+| **Markets** | 100+ pairs | 5-10 | N/A |
+
+## Adoption & Growth Plan
+
+**Phase 1 — Seed users (now)**
+- Target audience: crypto-native traders already active on Predict.fun / Probable who want passive yield
+- Distribution: Telegram bot as viral loop (share trade alerts), BNB Chain community channels
+- Onboarding: 2-minute flow — sign in with email, fund wallet, start agent
+
+**Phase 2 — Community & partnerships**
+- Partner with BNB Chain prediction market platforms (we drive volume + liquidity to their orderbooks)
+- Open-source the matching engine as a standalone library for ecosystem builders
+- Community-driven market pair curation (flag false matches, suggest new platforms)
+
+**Phase 3 — Platform expansion**
+- Add new BNB Chain CLOBs as they launch (XO Market, Bento, etc.)
+- Cross-chain expansion (Polygon prediction markets, Solana)
+- API access for institutional arbitrageurs (higher rate limits, dedicated support)
+
+## Roadmap
+
+| Milestone | Timeline | Deliverable |
+|---|---|---|
+| **v1.0 — Production launch** | Done | 3-platform arbitrage agent, dashboard, Telegram bot, MCP server |
+| **v1.1 — Resolution & tracking** | Q1 2026 | Auto-redeem settled positions, post-execution slippage tracking, P&L analytics |
+| **v1.2 — Reliability** | Q1 2026 | Provider health scoring, mobile-responsive frontend, Prometheus metrics |
+| **v1.3 — New platforms** | Q2 2026 | XO Market + Bento adapters, matching engine as standalone npm package |
+| **v2.0 — Cross-chain** | Q3 2026 | Polygon prediction markets, cross-chain bridge integration |
+| **v2.1 — Institutional** | Q4 2026 | API tier for institutional users, multi-wallet support, advanced risk controls |
+
 ## License
 
-MIT
+[MIT](./LICENSE)

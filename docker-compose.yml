@@ -1,0 +1,52 @@
+version: "3.8"
+
+services:
+  platform:
+    build:
+      context: .
+      dockerfile: packages/platform/Dockerfile
+    ports:
+      - "4000:4000"
+    env_file: .env
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: packages/frontend/Dockerfile
+      args:
+        - NEXT_PUBLIC_CHAIN_ID=${NEXT_PUBLIC_CHAIN_ID:-56}
+        - NEXT_PUBLIC_RPC_URL=${NEXT_PUBLIC_RPC_URL}
+        - NEXT_PUBLIC_PLATFORM_URL=${NEXT_PUBLIC_PLATFORM_URL:-http://localhost:4000}
+        - NEXT_PUBLIC_PRIVY_APP_ID=${NEXT_PUBLIC_PRIVY_APP_ID}
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      platform:
+        condition: service_healthy
+    restart: unless-stopped
+
+  telegram:
+    build:
+      context: .
+      dockerfile: packages/telegram/Dockerfile
+    env_file: .env
+    environment:
+      - NODE_ENV=production
+      - PLATFORM_URL=http://platform:4000
+      - FRONTEND_URL=http://frontend:3000
+    depends_on:
+      platform:
+        condition: service_healthy
+    restart: unless-stopped
